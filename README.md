@@ -143,4 +143,4 @@ python -m v2_structured.agent # 体验 V2 结构化
 
 ---
 
-*作者：石珂源 | 百胜中国 DICC · 市场专员 | 2025*
+*作者 Lumon | Yumchina DICC  | 2025*
