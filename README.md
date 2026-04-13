@@ -235,8 +235,3 @@ OPENAI_API_KEY=sk-...                        # 必填
 TARGET_BRAND=肯德基                           # 你的品牌名
 FEISHU_WEBHOOK=https://open.feishu.cn/...    # 可选，飞书报告推送
 ```
-
----
-
-*作者：石珂源 | 百胜中国 DICC · 市场专员 | 2025*
->>>>>>> Stashed changes
