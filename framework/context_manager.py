@@ -22,7 +22,6 @@ import json
 import os
 from datetime import datetime, date
 from pathlib import Path
-from openai import OpenAI
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -36,7 +35,7 @@ class ContextManager:
     def __init__(self, scenario: str, task_description: str):
         self.scenario = scenario
         self.task_description = task_description
-        self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        self._llm = None   # 懒加载
         self.tool_call_count = 0
         self.checkpoints: list[dict] = []   # 每次压缩生成的快照
         self.session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -91,11 +90,16 @@ class ContextManager:
         print(f"\n  [ContextManager] 已压缩（{len(messages)} → {len(compressed)} 条消息）")
         return compressed
 
+    def _get_llm(self):
+        if self._llm is None:
+            from .llm_client import LLMClient
+            self._llm = LLMClient()
+        return self._llm
+
     def _generate_progress_summary(self, tool_results: list[str]) -> str:
         """调用 LLM 对当前所有工具结果生成结构化摘要"""
         combined = "\n---\n".join(tool_results[:10])  # 最多取前10条
-        resp = self.client.chat.completions.create(
-            model="gpt-4o-mini",
+        resp = self._get_llm().chat(
             messages=[
                 {
                     "role": "system",
@@ -145,8 +149,7 @@ class ContextManager:
 
     def _extract_next_actions(self, final_output: str) -> list[str]:
         """从最终输出中提取下次应关注的行动点"""
-        resp = self.client.chat.completions.create(
-            model="gpt-4o-mini",
+        resp = self._get_llm().chat(
             messages=[
                 {
                     "role": "system",

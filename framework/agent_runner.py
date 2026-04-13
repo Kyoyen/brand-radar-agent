@@ -20,7 +20,6 @@ Agent Runner — 通用多场景路由引擎
 import json
 import os
 from pathlib import Path
-from openai import OpenAI
 from dotenv import load_dotenv
 from rich.console import Console
 from rich.table import Table
@@ -28,6 +27,7 @@ from rich.panel import Panel
 
 from .context_manager import ContextManager
 from .session_summarizer import SessionSummarizer
+from .llm_client import LLMClient
 
 load_dotenv()
 console = Console()
@@ -39,10 +39,11 @@ MAX_TURNS_DEFAULT = 12
 class AgentRunner:
 
     def __init__(self):
-        self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        self.llm = LLMClient()          # 通过 .env 的 LLM_PROVIDER 控制底层模型
         self.registry = self._load_registry()
-        self._tools_cache: dict = {}   # 按场景缓存工具定义
+        self._tools_cache: dict = {}    # 按场景缓存工具定义
         self.summarizer = SessionSummarizer()
+        console.print(f"  [dim]LLM: {self.llm}[/dim]")
 
     # ─── 注册表操作 ──────────────────────────────────────────────────────────
 
@@ -88,8 +89,7 @@ class AgentRunner:
             f"- {sid}: {sc['description']}"
             for sid, sc in self.registry["scenarios"].items()
         )
-        resp = self.client.chat.completions.create(
-            model="gpt-4o-mini",
+        resp = self.llm.chat(
             messages=[
                 {
                     "role": "system",
@@ -173,10 +173,10 @@ class AgentRunner:
         history = ctx.load_relevant_history(limit=2)
         history_note = f"\n\n{history}" if history else ""
 
-        # 加载同场景历史菜谱（复用经验）
-        recipes = self.summarizer.find_relevant_recipes(scenario_id, task_description, limit=2)
-        if recipes:
-            history_note += f"\n\n{recipes}"
+        # 加载历史执行经验（相似任务的经验参考）
+        experience = self.summarizer.recall_experience(scenario_id, task_description, limit=2)
+        if experience:
+            history_note += f"\n\n{experience}"
 
         # 构建 system prompt
         system_content = sc["system_prompt"].format(**{
@@ -208,11 +208,9 @@ class AgentRunner:
             turn += 1
 
             with console.status(f"[cyan]推理中（第 {turn} 轮）...[/cyan]"):
-                response = self.client.chat.completions.create(
-                    model="gpt-4o-mini",
+                response = self.llm.chat(
                     messages=messages,
                     tools=tools if tools else None,
-                    tool_choice="auto" if tools else None,
                     temperature=0.2,
                 )
 
@@ -251,18 +249,18 @@ class AgentRunner:
             metadata={"scenario_id": scenario_id, "kwargs": kwargs},
         )
 
-        # Layer 3：生成场景菜谱（执行过程归纳，供下次复用）
+        # Layer 3：沉淀执行经验（提炼本次执行过程，供下次同类任务参考）
         try:
-            recipe_path = self.summarizer.save_recipe(
+            exp_path = self.summarizer.save_experience(
                 scenario_id=scenario_id,
                 task_description=task_description,
                 final_output=final_output,
                 messages=messages,
                 metadata={"kwargs": kwargs, "tool_calls": ctx.tool_call_count},
             )
-            console.print(f"  [dim]菜谱已归档：{recipe_path.name}[/dim]")
+            console.print(f"  [dim]执行经验已归档：{exp_path.name}[/dim]")
         except Exception as e:
-            console.print(f"  [dim yellow]菜谱归档跳过：{e}[/dim yellow]")
+            console.print(f"  [dim yellow]经验归档跳过：{e}[/dim yellow]")
 
         return final_output
 

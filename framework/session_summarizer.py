@@ -1,37 +1,40 @@
 """
-Session Summarizer — 执行过程归纳 & 场景复用引擎
-================================================
-核心职责：
-  1. 每次 Agent 运行结束后，将整个执行过程归纳为结构化「执行记录」
-  2. 记录：解决了什么问题、用了哪些工具、发现了什么、输出是什么
-  3. 存储为可复用的「场景菜谱」(Recipe)
-  4. 下次同类任务到来时，自动加载相关菜谱作为上下文加速执行
+Session Summarizer — 执行经验沉淀模块
+=======================================
+每次 Agent 完成任务后，自动将本次执行过程提炼为「执行经验」，
+存入经验库（memory/experience/）。下次遇到相似任务时，
+自动从经验库中召回参考记录，注入执行上下文。
 
-Recipe 文件路径：memory/recipes/{scenario_id}/{YYYYMMDD}_{session_id}.json
+【为什么需要这个模块】
+不加这个模块：每次执行都从零开始，相同的任务反复走弯路。
+加了这个模块：Agent 会自动记住"上次怎么做的、发现了什么、哪里踩坑了"，
+              越用越聪明，同类任务越跑越快、越跑越准。
 
-Recipe 结构：
+【经验文件保存路径】
+  memory/experience/{场景ID}/{日期}_{随机ID}.json
+
+【每条经验记录的结构】
   {
-    "scenario_id": ...,
-    "run_date": ...,
-    "task_description": ...,
+    "scenario_id":      "competitive_analysis",   # 属于哪个场景
+    "run_date":         "2025-01-15",              # 执行日期
+    "task_description": "分析麦当劳小红书动态",     # 本次任务描述
     "execution": {
-      "tool_sequence": [...],    # 实际调用工具的顺序
-      "total_turns": ...,
-      "total_tool_calls": ...
+      "tool_sequence":  ["search_social_content", "send_feishu_report"],  # 实际调用了哪些工具、顺序
+      "total_tool_calls": 4                        # 总调用次数
     },
     "summary": {
-      "problem_solved": ...,     # 解决了什么问题（1句话）
-      "approach": ...,           # 解决思路（2-3句话）
-      "key_findings": [...],     # 关键发现（可直接复用的结论）
-      "output_type": ...,        # 输出形态（飞书报告 / JSON / Brief等）
+      "problem_solved": "分析了麦当劳在小红书的内容策略...",  # 解决了什么问题（1句话）
+      "approach":       "先搜索内容，再对比热点...",           # 解决思路（2-3句）
+      "key_findings":   ["发现1", "发现2"],                    # 本次关键结论（可直接复用）
+      "output_type":    "飞书竞品威胁报告"                     # 输出形态
     },
-    "reuse_guide": {
-      "when_to_reuse": ...,      # 什么情况下复用本菜谱
-      "effective_sequence": [...], # 经过验证有效的工具调用顺序
-      "pitfalls": [...],         # 执行中发现的坑/注意事项
-      "template_hints": ...      # 对 system prompt 的补充建议
+    "experience_guide": {
+      "when_to_reuse":      "下次分析同类竞品时参考",          # 什么情况下调用本条记录
+      "effective_sequence": ["search_social_content", ...],   # 验证有效的工具顺序
+      "pitfalls":           ["麦当劳抖音数据较多，注意去重"],   # 踩过的坑
+      "next_time_hints":    "建议同时查小红书+抖音再综合"      # 下次执行的改进建议
     },
-    "tags": [...]                # 用于相似任务匹配的关键词
+    "tags": ["麦当劳", "小红书", "竞品分析", "内容策略"]       # 用于相似任务匹配
   }
 """
 
@@ -41,232 +44,247 @@ import uuid
 from datetime import date
 from pathlib import Path
 from typing import Optional
-from openai import OpenAI
-from dotenv import load_dotenv
 
-load_dotenv()
 
-RECIPES_DIR = Path(__file__).parent.parent / "memory" / "recipes"
-RECIPES_DIR.mkdir(parents=True, exist_ok=True)
+EXPERIENCE_DIR = Path(__file__).parent.parent / "memory" / "experience"
+EXPERIENCE_DIR.mkdir(parents=True, exist_ok=True)
 
 
 class SessionSummarizer:
     """
-    在 Agent 每次运行结束后，将执行过程凝练为可复用的「场景菜谱」。
-    再次遇到相似任务时，自动召回相关菜谱注入到 system prompt。
+    Agent 执行经验的「记录员」和「查询员」。
+
+    记录员职责：任务结束后，把这次怎么做的、发现了什么提炼成结构化记录，存档。
+    查询员职责：下次来了相似任务，从档案里找到最相关的记录，提供给 Agent 参考。
     """
 
     def __init__(self):
-        self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        # 延迟导入 OpenAI，避免未安装时报错
+        self._client = None
 
-    # ─── 保存菜谱 ──────────────────────────────────────────────────────────
+    def _get_client(self):
+        """获取 LLM 客户端（懒加载）"""
+        if self._client is None:
+            try:
+                from framework.llm_client import LLMClient
+                self._client = LLMClient()
+            except Exception:
+                # 兜底：直接用 OpenAI
+                from openai import OpenAI
+                from dotenv import load_dotenv
+                load_dotenv()
+                self._client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        return self._client
 
-    def save_recipe(
+    # ─── 记录执行经验（任务结束后调用）────────────────────────────────────────
+
+    def save_experience(
         self,
         scenario_id: str,
         task_description: str,
         final_output: str,
-        messages: list[dict],
+        messages: list,
         metadata: Optional[dict] = None,
     ) -> Path:
         """
-        执行结束后调用。归纳本次 session，生成结构化菜谱并持久化。
+        将本次执行过程归纳为经验记录并存档。
 
-        Args:
-            scenario_id:       场景标识（如 competitive_analysis）
-            task_description:  本次任务的自然语言描述
-            final_output:      Agent 最终输出文本
-            messages:          完整消息历史（用于归纳执行过程）
-            metadata:          附加信息（kwargs、tool_call_count 等）
+        参数：
+          scenario_id       场景标识（如 competitive_analysis）
+          task_description  本次任务的自然语言描述
+          final_output      Agent 最终输出的文字结果
+          messages          完整消息历史（用于提炼工具调用轨迹）
+          metadata          附加信息（如工具调用次数）
 
-        Returns:
-            保存路径
+        返回：存档文件路径
         """
-        execution_trace = self._extract_execution_trace(messages)
-        recipe_content = self._generate_recipe(
-            scenario_id, task_description, final_output, execution_trace, metadata
+        # 1. 从消息历史中提取工具调用轨迹
+        trace = self._extract_tool_trace(messages)
+
+        # 2. 让 LLM 将执行过程提炼为结构化经验
+        experience = self._generate_experience(
+            scenario_id, task_description, final_output, trace, metadata
         )
 
-        # 存储
-        scenario_dir = RECIPES_DIR / scenario_id
+        # 3. 存档
+        scenario_dir = EXPERIENCE_DIR / scenario_id
         scenario_dir.mkdir(parents=True, exist_ok=True)
-
         filename = f"{date.today().strftime('%Y%m%d')}_{uuid.uuid4().hex[:6]}.json"
         filepath = scenario_dir / filename
 
         with open(filepath, "w", encoding="utf-8") as f:
-            json.dump(recipe_content, f, ensure_ascii=False, indent=2)
+            json.dump(experience, f, ensure_ascii=False, indent=2)
 
         return filepath
 
-    # ─── 召回相关菜谱 ─────────────────────────────────────────────────────
+    # ─── 召回相关经验（任务开始前调用）────────────────────────────────────────
 
-    def find_relevant_recipes(
+    def recall_experience(
         self,
         scenario_id: str,
         task_description: str,
         limit: int = 2,
     ) -> str:
         """
-        根据场景 + 任务描述，召回最相关的历史菜谱，返回可注入 system prompt 的文本。
+        根据场景和任务描述，找出最相关的历史经验，
+        返回可直接注入 system prompt 的参考文本。
 
-        Returns:
-            格式化的参考文本（空字符串表示无历史菜谱）
+        返回空字符串表示暂无相关历史经验。
         """
-        scenario_dir = RECIPES_DIR / scenario_id
+        scenario_dir = EXPERIENCE_DIR / scenario_id
         if not scenario_dir.exists():
             return ""
 
-        recipe_files = sorted(scenario_dir.glob("*.json"), reverse=True)[:limit * 3]
-        if not recipe_files:
-            return ""
-
+        # 读取最近的经验文件（最多取 limit*3 个候选）
         candidates = []
-        for fp in recipe_files:
+        for fp in sorted(scenario_dir.glob("*.json"), reverse=True)[: limit * 3]:
             try:
                 with open(fp, encoding="utf-8") as f:
-                    recipe = json.load(f)
-                candidates.append(recipe)
+                    record = json.load(f)
+                candidates.append(record)
             except Exception:
                 continue
 
         if not candidates:
             return ""
 
-        # 按相关性排序（标签匹配 + 日期优先）
+        # 按标签匹配度排序，选出最相关的
         task_lower = task_description.lower()
         scored = []
-        for r in candidates:
-            tags = r.get("tags", [])
-            score = sum(1 for tag in tags if tag in task_lower)
-            score += 0.1  # 日期越新加分（已按时间倒排）
-            scored.append((score, r))
-
+        for record in candidates:
+            tags = record.get("tags", [])
+            match_score = sum(1 for tag in tags if tag in task_lower)
+            scored.append((match_score, record))
         scored.sort(key=lambda x: x[0], reverse=True)
-        top_recipes = [r for _, r in scored[:limit]]
+        top_records = [r for _, r in scored[:limit]]
 
-        # 格式化为可注入文本
-        lines = ["【历史执行参考】以下为相似任务的已验证执行记录：\n"]
-        for i, r in enumerate(top_recipes, 1):
-            s = r.get("summary", {})
-            rg = r.get("reuse_guide", {})
-            lines.append(f"参考{i}（{r.get('run_date', '')}）：{r.get('task_description', '')}")
-            lines.append(f"  解决思路：{s.get('approach', '')}")
+        # 格式化为易读的参考文本
+        lines = ["【历史执行经验参考】以下记录来自相似任务的真实执行，供本次参考：\n"]
+        for i, rec in enumerate(top_records, 1):
+            s = rec.get("summary", {})
+            g = rec.get("experience_guide", {})
+            lines.append(f"经验{i}（{rec.get('run_date', '')}）：{rec.get('task_description', '')}")
+            lines.append(f"  · 解决思路：{s.get('approach', '')}")
             if s.get("key_findings"):
-                lines.append(f"  关键发现：{'；'.join(s['key_findings'][:3])}")
-            if rg.get("effective_sequence"):
-                lines.append(f"  有效工具顺序：{' → '.join(rg['effective_sequence'])}")
-            if rg.get("pitfalls"):
-                lines.append(f"  注意事项：{rg['pitfalls'][0]}")
+                lines.append(f"  · 关键结论：{'；'.join(s['key_findings'][:3])}")
+            if g.get("effective_sequence"):
+                lines.append(f"  · 有效工具顺序：{' → '.join(g['effective_sequence'])}")
+            if g.get("pitfalls"):
+                lines.append(f"  · 注意事项：{g['pitfalls'][0]}")
+            if g.get("next_time_hints"):
+                lines.append(f"  · 改进建议：{g['next_time_hints']}")
             lines.append("")
 
         return "\n".join(lines)
 
-    # ─── 查看所有菜谱 ─────────────────────────────────────────────────────
+    # ─── 列出所有经验记录（供 run.py --experience 查看）──────────────────────
 
-    def list_recipes(self, scenario_id: Optional[str] = None) -> list[dict]:
-        """列出所有（或指定场景的）菜谱摘要"""
+    def list_experience(self, scenario_id: Optional[str] = None) -> list[dict]:
+        """列出所有已积累的执行经验摘要"""
         results = []
-        search_dir = RECIPES_DIR / scenario_id if scenario_id else RECIPES_DIR
-        if not search_dir.exists():
+        root = EXPERIENCE_DIR / scenario_id if scenario_id else EXPERIENCE_DIR
+        if not root.exists():
             return []
 
         pattern = "**/*.json" if not scenario_id else "*.json"
-        for fp in sorted(search_dir.glob(pattern), reverse=True):
+        for fp in sorted(root.glob(pattern), reverse=True):
             try:
                 with open(fp, encoding="utf-8") as f:
-                    r = json.load(f)
+                    rec = json.load(f)
                 results.append({
-                    "file": fp.name,
-                    "scenario": r.get("scenario_id"),
-                    "date": r.get("run_date"),
-                    "task": r.get("task_description", "")[:40],
-                    "problem_solved": r.get("summary", {}).get("problem_solved", ""),
+                    "scenario":       rec.get("scenario_id", ""),
+                    "date":           rec.get("run_date", ""),
+                    "task":           rec.get("task_description", "")[:45],
+                    "problem_solved": rec.get("summary", {}).get("problem_solved", "")[:50],
                 })
             except Exception:
                 continue
         return results
 
-    # ─── 内部方法 ─────────────────────────────────────────────────────────
+    # ─── 内部方法 ─────────────────────────────────────────────────────────────
 
-    def _extract_execution_trace(self, messages: list[dict]) -> dict:
-        """从消息历史中提取执行轨迹（工具序列、工具结果摘要）"""
+    def _extract_tool_trace(self, messages: list) -> dict:
+        """从消息历史中提取工具调用轨迹"""
         tool_sequence = []
-        tool_results_sample = []
-
         for m in messages:
-            role = m.get("role", "")
-            if role == "assistant" and isinstance(m, dict):
-                # OpenAI message 对象
-                tool_calls = getattr(m, "tool_calls", None) or (
-                    m.get("tool_calls") if isinstance(m, dict) else None
-                )
-                if tool_calls:
-                    for tc in tool_calls:
-                        name = (
-                            tc.function.name
-                            if hasattr(tc, "function")
-                            else tc.get("function", {}).get("name", "")
-                        )
-                        if name:
-                            tool_sequence.append(name)
-            elif role == "tool":
-                content = m.get("content", "")
-                if len(content) > 200:
-                    content = content[:200] + "..."
-                tool_results_sample.append(content)
+            # 兼容 dict 格式和 OpenAI Message 对象
+            if isinstance(m, dict):
+                tool_calls = m.get("tool_calls")
+            else:
+                tool_calls = getattr(m, "tool_calls", None)
+
+            if tool_calls:
+                for tc in tool_calls:
+                    if isinstance(tc, dict):
+                        name = tc.get("function", {}).get("name", "")
+                    else:
+                        name = getattr(getattr(tc, "function", None), "name", "")
+                    if name:
+                        tool_sequence.append(name)
 
         return {
             "tool_sequence": tool_sequence,
-            "tool_count": len(tool_sequence),
-            "tool_results_sample": tool_results_sample[:3],
+            "total_tool_calls": len(tool_sequence),
         }
 
-    def _generate_recipe(
+    def _generate_experience(
         self,
         scenario_id: str,
         task_description: str,
         final_output: str,
-        execution_trace: dict,
+        trace: dict,
         metadata: Optional[dict],
     ) -> dict:
-        """调用 LLM，将执行过程归纳为结构化菜谱"""
-        prompt = f"""你是一个营销 Agent 执行记录归纳专家。
-请将以下 Agent 执行过程归纳为结构化菜谱，用于未来相似任务的复用。
+        """让 LLM 将执行过程提炼为结构化经验记录"""
 
-【任务描述】{task_description}
-【场景ID】{scenario_id}
-【工具调用顺序】{' → '.join(execution_trace['tool_sequence']) if execution_trace['tool_sequence'] else '无工具调用'}
-【工具调用次数】{execution_trace['tool_count']}
-【最终输出摘要】{final_output[:500] if final_output else '（无）'}
+        tool_seq_str = " → ".join(trace["tool_sequence"]) if trace["tool_sequence"] else "无工具调用"
+        output_preview = final_output[:400] if final_output else "（无输出）"
 
-请输出严格 JSON，结构如下（所有字段均为中文）：
+        prompt = f"""你是一个 AI Agent 执行经验提炼专家。
+请将以下执行过程提炼为结构化的经验记录，帮助未来遇到相似任务时更好地执行。
+
+【本次执行信息】
+- 场景：{scenario_id}
+- 任务：{task_description}
+- 工具调用顺序：{tool_seq_str}
+- 工具调用次数：{trace['total_tool_calls']}
+- 输出摘要：{output_preview}
+
+请输出严格的 JSON，结构如下（全部中文）：
 {{
   "summary": {{
-    "problem_solved": "一句话描述解决了什么问题",
-    "approach": "2-3句话描述解决思路",
-    "key_findings": ["发现1", "发现2", "发现3"],
+    "problem_solved": "一句话：解决了什么问题",
+    "approach": "2-3句话：怎么解决的",
+    "key_findings": ["关键结论1", "关键结论2"],
     "output_type": "输出形态，如：飞书竞品威胁报告"
   }},
-  "reuse_guide": {{
-    "when_to_reuse": "描述什么情况下应该参考本菜谱",
+  "experience_guide": {{
+    "when_to_reuse": "什么情况下参考本条经验",
     "effective_sequence": ["工具1", "工具2"],
     "pitfalls": ["注意事项1"],
-    "template_hints": "对下次执行的补充建议"
+    "next_time_hints": "下次执行的改进建议"
   }},
   "tags": ["关键词1", "关键词2", "关键词3", "关键词4", "关键词5"]
 }}"""
 
         try:
-            resp = self.client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.3,
-                response_format={"type": "json_object"},
-            )
+            client = self._get_client()
+            # 兼容 LLMClient 和原生 OpenAI 客户端
+            if hasattr(client, "chat_raw"):
+                resp = client.chat_raw(
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.3,
+                    response_format={"type": "json_object"},
+                )
+            else:
+                resp = client.chat.completions.create(
+                    model=os.getenv("LLM_MODEL", "gpt-4o-mini"),
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.3,
+                    response_format={"type": "json_object"},
+                )
             generated = json.loads(resp.choices[0].message.content)
-        except Exception as e:
-            # 归纳失败时用基础结构
+        except Exception:
             generated = {
                 "summary": {
                     "problem_solved": f"执行了 {scenario_id} 场景任务",
@@ -274,23 +292,20 @@ class SessionSummarizer:
                     "key_findings": [],
                     "output_type": "文本输出",
                 },
-                "reuse_guide": {
+                "experience_guide": {
                     "when_to_reuse": f"执行 {scenario_id} 相关任务时",
-                    "effective_sequence": execution_trace["tool_sequence"],
+                    "effective_sequence": trace["tool_sequence"],
                     "pitfalls": [],
-                    "template_hints": "",
+                    "next_time_hints": "",
                 },
                 "tags": [scenario_id],
             }
 
-        recipe = {
-            "scenario_id": scenario_id,
-            "run_date": date.today().isoformat(),
+        return {
+            "schema_version":  "1.0",
+            "scenario_id":     scenario_id,
+            "run_date":        date.today().isoformat(),
             "task_description": task_description,
-            "execution": {
-                "tool_sequence": execution_trace["tool_sequence"],
-                "total_tool_calls": execution_trace["tool_count"],
-            },
+            "execution":       trace,
             **generated,
         }
-        return recipe
