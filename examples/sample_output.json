@@ -1,0 +1,94 @@
+{
+  "generated_by": "Brand Radar Agent V3",
+  "analysis_date": "2025-10-15",
+  "our_brand": "肯德基",
+  "reports": [
+    {
+      "competitor_name": "麦当劳",
+      "analysis_date": "2025-10-15",
+      "overall_strategy": "以亲子+联名为双引擎，强占家庭客群心智，同步用热梗短视频俘获年轻用户",
+      "platform_insights": [
+        {
+          "platform": "小红书",
+          "main_content_type": "图文种草+探店",
+          "posting_frequency": "每周6-8条",
+          "top_themes": [
+            {
+              "theme_name": "亲子联名",
+              "frequency": 18,
+              "avg_engagement": "点赞3200，评论280",
+              "representative_example": "Hello Kitty限定套餐开箱，话题#童年回忆 下冲榜"
+            },
+            {
+              "theme_name": "限时回归",
+              "frequency": 12,
+              "avg_engagement": "点赞2800，评论190",
+              "representative_example": "麦辣鸡腿堡限时回归倒计时贴，制造稀缺感"
+            }
+          ],
+          "tone_style": "温情+童趣+怀旧"
+        },
+        {
+          "platform": "抖音",
+          "main_content_type": "热梗短视频+挑战赛",
+          "posting_frequency": "每周4-5条",
+          "top_themes": [
+            {
+              "theme_name": "热梗借势",
+              "frequency": 15,
+              "avg_engagement": "播放85万，点赞2.1万",
+              "representative_example": "用「消失的名单」梗推麦辣鸡腿堡，自然植入，播放150万"
+            }
+          ],
+          "tone_style": "年轻化+幽默+强互动"
+        }
+      ],
+      "core_messaging": ["家庭首选", "童年记忆", "限时稀缺", "年轻好玩", "儿童营养"],
+      "threat_level": "高威胁",
+      "threat_reason": "麦当劳在家庭+亲子赛道声量显著，与KFC重叠度高，且联名内容互动率明显优于KFC近期水平",
+      "actionable_recommendations": [
+        "加速推进KFC亲子联名内容，避免家庭心智被麦当劳单方占领",
+        "在抖音加大热梗借势内容比例，当前KFC硬广感偏强",
+        "针对麦当劳的「限时回归」打法，可提前策划「经典品日历」系列内容对冲"
+      ],
+      "watch_out": "麦当劳近期加大儿童套餐的KOL投放力度（约40%内容为付费），有意抢占家长决策心智"
+    },
+    {
+      "competitor_name": "汉堡王",
+      "analysis_date": "2025-10-15",
+      "overall_strategy": "深耕「火焰烤制」差异化定位，以健康理性内容争夺成人客群",
+      "platform_insights": [
+        {
+          "platform": "小红书",
+          "main_content_type": "产品教育图文",
+          "posting_frequency": "每周2-3条",
+          "top_themes": [
+            {
+              "theme_name": "健康差异化",
+              "frequency": 11,
+              "avg_engagement": "点赞980，评论65",
+              "representative_example": "真火烤制不加人工香精，理性健康风格内容"
+            }
+          ],
+          "tone_style": "理性+健康+差异化"
+        }
+      ],
+      "core_messaging": ["火焰烤制", "无添加", "健康选择", "辣味挑战"],
+      "threat_level": "可借鉴",
+      "threat_reason": "汉堡王整体声量弱，与KFC重叠度低，但其「健康差异化」定位在理性消费者中有一定渗透",
+      "actionable_recommendations": [
+        "可参考汉堡王的「工艺透明化」内容思路，KFC可围绕食品安全/供应链做内容背书",
+        "汉堡王辣味挑战赛形式可借鉴，适合KFC的辣系产品线"
+      ],
+      "watch_out": null
+    }
+  ],
+  "agent_metadata": {
+    "total_tool_calls": 8,
+    "turns_used": 6,
+    "platforms_covered": ["小红书", "抖音"],
+    "feishu_push_status": "sent",
+    "history_saved": true,
+    "prompt_version": "v3.2"
+  }
+}

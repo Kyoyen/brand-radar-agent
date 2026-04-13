@@ -1,0 +1,11 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+v2_output.json
+competitor_history.json
+*.egg-info/
+dist/
+.venv/
+venv/
