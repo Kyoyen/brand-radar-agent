@@ -1,0 +1,62 @@
+{
+  "version": "1.0",
+  "description": "营销 Agent 场景注册表 — 新增场景请通过 pain_point_intake.py 引导式录入",
+  "scenarios": {
+    "competitive_analysis": {
+      "name": "竞品分析",
+      "description": "监控竞品在各社交平台的内容动态，评估威胁等级，给出行动建议",
+      "trigger_keywords": ["竞品", "分析", "麦当劳", "汉堡王", "监控", "对手", "competitor"],
+      "tools": ["search_social_content", "get_trending_topics", "send_feishu_report", "save_to_history"],
+      "system_prompt": "你是专业的竞品内容监控 Agent，服务于品牌：{brand}。\n\n执行步骤：\n1. 用 search_social_content 搜索竞品在小红书、抖音的内容\n2. 用 get_trending_topics 了解平台热点，判断竞品是否在蹭热点\n3. 综合评估威胁等级（高威胁/中等威胁/低威胁/可借鉴）\n4. 用 send_feishu_report 推送报告\n5. 用 save_to_history 存档\n\n分析重点：内容主题变化、高互动内容策略、对{brand}的具体威胁、可借鉴打法。",
+      "max_turns": 12,
+      "checkpoint_every": 5,
+      "estimated_duration_min": 5,
+      "roi_metrics": {
+        "time_saved_hours_per_week": 4,
+        "manual_steps_replaced": ["手动刷平台截图", "复制粘贴整理", "编写分析报告", "发送给团队"]
+      }
+    },
+    "content_brief": {
+      "name": "内容选题 & Brief",
+      "description": "结合品牌日历和平台热点，生成内容选题方向和创作指引",
+      "trigger_keywords": ["选题", "brief", "内容方向", "排期", "内容策划", "创作", "文案"],
+      "tools": ["get_trending_topics", "get_brand_calendar", "generate_content_brief", "send_feishu_report"],
+      "system_prompt": "你是品牌内容策划 Agent，服务于品牌：{brand}。\n\n执行步骤：\n1. 用 get_brand_calendar 获取近期品牌节点和排期\n2. 用 get_trending_topics 了解各平台热点话题\n3. 结合品牌调性和热点，用 generate_content_brief 生成选题 Brief\n4. 用 send_feishu_report 推送给团队\n\n输出要求：每个 Brief 包含选题方向、目标人群、核心卖点、内容形式建议、参考 KOL 类型。",
+      "max_turns": 10,
+      "checkpoint_every": 4,
+      "estimated_duration_min": 3,
+      "roi_metrics": {
+        "time_saved_hours_per_week": 3,
+        "manual_steps_replaced": ["研究热点话题", "结合品牌日历选题", "撰写创作指引", "分发给内容团队"]
+      }
+    },
+    "campaign_debrief": {
+      "name": "Campaign 复盘",
+      "description": "整合各渠道数据，生成活动复盘报告，提炼可复用经验",
+      "trigger_keywords": ["复盘", "数据", "渠道表现", "总结", "活动结果", "ROI", "campaign"],
+      "tools": ["calculate_campaign_metrics", "analyze_channel_performance", "send_feishu_report", "save_to_history"],
+      "system_prompt": "你是营销活动复盘 Agent，服务于品牌：{brand}。\n\n执行步骤：\n1. 用 calculate_campaign_metrics 计算整体活动数据\n2. 用 analyze_channel_performance 分析各渠道表现差异\n3. 提炼亮点、问题和下次改进点\n4. 用 send_feishu_report 推送复盘报告\n5. 用 save_to_history 存档供后续参考\n\n复盘维度：曝光量、互动率、转化率、ROI、各渠道对比、内容表现排名。",
+      "max_turns": 10,
+      "checkpoint_every": 4,
+      "estimated_duration_min": 4,
+      "roi_metrics": {
+        "time_saved_hours_per_week": 2,
+        "manual_steps_replaced": ["汇总各平台数据", "计算 ROI", "撰写复盘报告", "提炼经验"]
+      }
+    },
+    "trend_alert": {
+      "name": "热点预警",
+      "description": "监测平台热点话题，判断品牌借势可行性，提供内容切入角度",
+      "trigger_keywords": ["热点", "借势", "话题", "趋势", "预警", "蹭热", "trending"],
+      "tools": ["get_trending_topics", "assess_brand_fit", "draft_content_hook", "send_feishu_report"],
+      "system_prompt": "你是品牌热点预警 Agent，服务于品牌：{brand}。\n\n执行步骤：\n1. 用 get_trending_topics 抓取各平台当前热点\n2. 用 assess_brand_fit 评估每个热点与品牌的契合度（高/中/低）\n3. 对契合度高的热点，用 draft_content_hook 生成借势切入角度\n4. 用 send_feishu_report 推送热点简报\n\n判断标准：品牌调性匹配度、风险等级、时效性、预期传播效果。",
+      "max_turns": 10,
+      "checkpoint_every": 4,
+      "estimated_duration_min": 3,
+      "roi_metrics": {
+        "time_saved_hours_per_week": 3,
+        "manual_steps_replaced": ["每日刷热榜", "评估品牌匹配度", "策划借势角度", "通知内容团队"]
+      }
+    }
+  }
+}
