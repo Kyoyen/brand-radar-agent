@@ -29,18 +29,18 @@ git add -A
 if git diff --cached --quiet; then
   echo "     (无新变更，跳过 commit)"
 else
-  git commit -m "feat: V4 完整框架 — 框架补全 + 扩展工具集 + 统一入口 + 展示页重写
+  git commit -m "feat: V4.2 — 结构化输出 + 真实API + 反幻觉约束 + Mock兜底 + ReAct去重
 
-  新增文件：
-  - framework/__init__.py
-  - scenarios/__init__.py
-  - scenarios/tools_extended.py
-  - run.py（统一入口）
-  - SKILL.md
+  新能力：
+  - 结构化输出范式（framework/output_schema.py）：观察→洞察→决策点→建议
+  - 真实 API 工具集（scenarios/tools_real.py）：Google Trends/HackerNews/微博/URL
+  - 反幻觉全局约束（agent_runner UNIVERSAL_METHODOLOGY）
+  - MockProvider 兜底（llm_client）：无 API Key 也能跑通完整流程
+  - ReAct 工具去重：同参数调用 >2 次自动中断，避免死循环
+  - 默认 LLM 切换为 DeepSeek（国内首选 + 成本低）
 
-  更新文件：
-  - README.md（重写，含迭代路径和可行性说明）
-  - docs/presentation.html（红白黑色方案重新设计）"
+  文档：
+  - docs/api_integration.md：小红书/抖音/微博/飞书/SMTP/LLM 接入完整指南"
 fi
 
 echo ""

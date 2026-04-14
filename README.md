@@ -16,7 +16,10 @@
 
 **这个项目验证了一个判断**：对于「步骤固定、数据可获取、输出格式明确」的营销工作，AI Agent 可以在保持同等结果质量的前提下，把执行时间压缩到原来的 1/20。
 
-**当前状态**：完整框架 + Mock 数据演示。框架结构已可运行，生产环境需接入真实平台 API（小红书、抖音等数据接口）。换句话说：代码结构可直接复用，数据层需要对接。
+**当前状态**：完整框架 + 部分真实 API + Mock 数据兜底。
+- 已接入真实数据源：Google Trends、HackerNews、微博热搜（公开聚合源）、URL 抓取
+- 仍为 Mock：小红书、抖音（无官方开放 API，需第三方付费服务，接入路径见 [docs/api_integration.md](docs/api_integration.md)）
+- 输出范式：观察 → 洞察 → 决策点 → 建议（带置信度和依据），每条建议可追溯到具体数据点
 
 ---
 
@@ -143,14 +146,32 @@ brand-radar-agent/
 
 ---
 
+## 输出范式
+
+所有场景统一输出四段式结构（`framework/output_schema.py`），辅助决策而不是甩数据：
+
+```
+观察 (O1, O2, ...)     客观事实，必须有数据来源
+  ↓
+洞察 (I1, I2, ...)     基于观察的判断，evidence_refs 指向 O
+  ↓
+决策点 (D1, D2, ...)   用户面临的选择，给出选项
+  ↓
+推荐行动 (A1, A2, ...) 具体行动，带 priority / effort / confidence
+```
+
+每条洞察、决策、建议都通过 `evidence_refs` 追溯到具体观察。Agent 输出 JSON 后自动解析为 Markdown，可直接推送飞书/邮件。
+
 ## 生产集成路径
 
-当前所有工具使用 Mock 数据，方便在无 API 权限的环境下演示完整流程。接入生产数据只需替换两处：
+详见 [docs/api_integration.md](docs/api_integration.md)，覆盖：
 
-1. **`v3_agent/tools.py`** — 将 `mock_data` 块替换为平台 API 调用（小红书笔记搜索、抖音热榜等）
-2. **`scenarios/tools_extended.py`** — 每个函数注释中标明了推荐的第三方数据服务
+- 已开箱即用：Google Trends / HackerNews / 微博热搜 / URL 抓取
+- 国内社媒：小红书（新红/千瓜）、抖音（飞瓜/蝉妈妈）、微博官方
+- 推送通道：飞书 webhook、SMTP 邮件
+- LLM 平台：5 家对比与切换
 
-框架层（路由、记忆、LLM 抽象）无需修改。
+框架层（路由、记忆、LLM 抽象、输出范式）无需修改，新增工具只需在 `scenarios/tools_real.py` 加一个函数。
 
 ---
 

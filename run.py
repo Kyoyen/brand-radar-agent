@@ -25,7 +25,8 @@ sys.path.insert(0, str(ROOT))
 # ── 环境检查 ────────────────────────────────────────────────────────────────
 
 def check_env():
-    provider = os.getenv("LLM_PROVIDER", "openai").lower()
+    """检查 API Key 状态，缺失时不退出（由 LLMClient 自动降级到 Mock）"""
+    provider = os.getenv("LLM_PROVIDER", "deepseek").lower()
     key_map = {
         "openai":    "OPENAI_API_KEY",
         "anthropic": "ANTHROPIC_API_KEY",
@@ -33,13 +34,11 @@ def check_env():
         "moonshot":  "MOONSHOT_API_KEY",
         "zhipu":     "ZHIPU_API_KEY",
     }
-    env_var = key_map.get(provider, "OPENAI_API_KEY")
-    if not os.getenv(env_var):
-        print(f"\n❌ 缺少 API Key：{env_var}")
-        print(f"   当前 LLM_PROVIDER = {provider}")
-        print(f"   请在 .env 文件中设置 {env_var}=your_api_key\n")
-        return False
-    print(f"  [配置] Provider: {provider} | Key: {env_var[:6]}***")
+    env_var = key_map.get(provider, "DEEPSEEK_API_KEY")
+    if os.getenv(env_var):
+        print(f"  [配置] Provider: {provider} | Key: {env_var[:6]}***")
+    else:
+        print(f"  [配置] Provider: {provider} | Key: 未配置 → 自动启用 MockProvider 演示模式")
     return True
 
 
