@@ -2,6 +2,20 @@
   "version": "1.0",
   "description": "营销 Agent 场景注册表 — 新增场景请通过 pain_point_intake.py 引导式录入",
   "scenarios": {
+    "brand_radar_weekly": {
+      "name": "Brand Radar 周企划",
+      "description": "读取咖啡品类 Replay 观察包，核对版本、合并事件并生成停在人工复核前的周企划结果",
+      "trigger_keywords": ["周企划", "周度观察", "brand radar weekly", "咖啡品类观察"],
+      "tools": ["read_weekly_settings", "read_weekly_source_pack", "resolve_weekly_versions", "merge_weekly_events"],
+      "system_prompt": "你是 Brand Radar 的单一周企划 Agent，只处理当前观察包。先尊重程序给出的版本取舍和事件合并，再判断本周跟进、继续观察、主动避开和待核。所有事实必须引用可用 source_id；模型信心不能替代来源充分度。生成情报卡、30 天日历、关键词和恰好 3 条不同视角的 Brief。Brief 只能引用已生成的卡片。不得调用或建议自动发送飞书、发布、投放或修改预算；最终状态必须等待人工复核。只输出指定 JSON，不要 Markdown。",
+      "max_turns": 1,
+      "checkpoint_every": 1,
+      "estimated_duration_min": 5,
+      "roi_metrics": {
+        "time_saved_hours_per_week": 0,
+        "manual_steps_replaced": ["未建立人工基线，不声明替代工时"]
+      }
+    },
     "competitive_analysis": {
       "name": "竞品分析",
       "description": "监控竞品在各社交平台的内容动态，评估威胁等级，给出行动建议",

@@ -1,0 +1,275 @@
+{
+  "schema_version": "1.0",
+  "pack_id": "coffee-week-2026-09-07",
+  "pack_mode": "REPLAY",
+  "title": "瑞幸咖啡 / 现制咖啡周观察（2026-09-07 至 2026-09-13）",
+  "prepared_on": "2026-08-31",
+  "expected_result_file": "expected-result.json",
+  "settings": {
+    "brand": "瑞幸咖啡",
+    "category": "现制咖啡",
+    "regions": [
+      "全国",
+      "上海"
+    ],
+    "competitors": [
+      "星巴克中国",
+      "库迪咖啡",
+      "Manner",
+      "麦咖啡"
+    ],
+    "observation_window": {
+      "start": "2026-09-07",
+      "end": "2026-09-13"
+    },
+    "calendar_window": {
+      "start": "2026-09-07",
+      "end": "2026-10-06"
+    },
+    "business_question": "下周有哪些值得跟进、继续观察或主动避开的营销信号？",
+    "keywords": [
+      "咖啡",
+      "上海",
+      "旅游节",
+      "赛事",
+      "教师节",
+      "中秋",
+      "国庆",
+      "社区空间"
+    ],
+    "safety_boundaries": [
+      "默认停在人工复核前",
+      "证据不足时保留待核，不补写成确定事实",
+      "不得自动发送飞书",
+      "不得自动发布或创建投放",
+      "不得调整预算"
+    ],
+    "review_deadline": "2026-09-04"
+  },
+  "materials": [
+    {
+      "source_id": "src_luckin_q2_2026",
+      "title": "瑞幸咖啡 2026 年第二季度官方业绩",
+      "source_type": "PUBLIC",
+      "source_date": "2026-08-03",
+      "url": "https://investor.luckincoffee.com/news-releases/news-release-details/luckin-coffee-announces-second-quarter-2026-financial-results",
+      "file": "sources/01-luckin-q2-2026.md",
+      "event_key": "luckin-performance-q2-2026",
+      "version_group": "luckin-performance-q2-2026",
+      "version_rank": 1,
+      "supersedes": [],
+      "duplicate_of": null,
+      "valid_from": "2026-08-03",
+      "valid_to": null,
+      "verification_status": "verified",
+      "brands": [
+        "瑞幸咖啡"
+      ],
+      "regions": [
+        "全国"
+      ]
+    },
+    {
+      "source_id": "src_starbucks_interest_community_20260730",
+      "title": "星巴克中国兴趣社区空间更新",
+      "source_type": "PUBLIC",
+      "source_date": "2026-07-30",
+      "url": "https://www.starbucks.com.cn/about/news/starbucks-interest-community-space-refresh/",
+      "file": "sources/02-starbucks-interest-community.md",
+      "event_key": "starbucks-interest-community-space-2026",
+      "version_group": "starbucks-interest-community-space-2026",
+      "version_rank": 1,
+      "supersedes": [],
+      "duplicate_of": null,
+      "valid_from": "2026-07-30",
+      "valid_to": null,
+      "verification_status": "verified",
+      "brands": [
+        "星巴克中国"
+      ],
+      "regions": [
+        "全国"
+      ]
+    },
+    {
+      "source_id": "src_shanghai_tourism_summer_preview_v1",
+      "title": "上海旅游节夏季旧预告（截至 8 月 31 日）",
+      "source_type": "REPLAY",
+      "source_date": "2026-06-30",
+      "url": null,
+      "file": "sources/03-shanghai-tourism-festival-summer-preview-expired.md",
+      "event_key": "shanghai-tourism-festival-2026",
+      "version_group": "shanghai-tourism-festival-2026",
+      "version_rank": 1,
+      "supersedes": [],
+      "superseded_by": "src_shanghai_tourism_full_v2",
+      "duplicate_of": null,
+      "valid_from": "2026-07-08",
+      "valid_to": "2026-08-31",
+      "verification_status": "verified",
+      "brands": [
+        "未指定品牌"
+      ],
+      "regions": [
+        "上海"
+      ]
+    },
+    {
+      "source_id": "src_shanghai_tourism_full_v2",
+      "title": "2026 上海旅游节完整当前版（7 月 8 日至 10 月 6 日）",
+      "source_type": "PUBLIC",
+      "source_date": "2026-07-02",
+      "url": "https://www.shanghai.gov.cn/nw31406/20260703/733929abf3d3471099be7a76c3f9fd72.html",
+      "file": "sources/04-shanghai-tourism-festival-current.md",
+      "event_key": "shanghai-tourism-festival-2026",
+      "version_group": "shanghai-tourism-festival-2026",
+      "version_rank": 2,
+      "supersedes": [
+        "src_shanghai_tourism_summer_preview_v1"
+      ],
+      "duplicate_of": null,
+      "valid_from": "2026-07-08",
+      "valid_to": "2026-10-06",
+      "verification_status": "verified",
+      "brands": [
+        "未指定品牌"
+      ],
+      "regions": [
+        "上海"
+      ]
+    },
+    {
+      "source_id": "src_shanghai_tourism_official_summary_dup",
+      "title": "上海旅游节另一官方摘要（重复材料）",
+      "source_type": "PUBLIC",
+      "source_date": "2026-07-06",
+      "url": "https://english.shanghai.gov.cn/en-FestivalsCelebrations/20260706/6db6bb0b8eea47059b460af849c8af4a.html",
+      "canonical_url": "https://www.shanghai.gov.cn/nw31406/20260703/733929abf3d3471099be7a76c3f9fd72.html",
+      "file": "sources/05-shanghai-tourism-festival-official-summary-duplicate.md",
+      "event_key": "shanghai-tourism-festival-2026",
+      "version_group": "shanghai-tourism-festival-2026",
+      "version_rank": 2,
+      "supersedes": [],
+      "duplicate_of": "src_shanghai_tourism_full_v2",
+      "valid_from": "2026-07-08",
+      "valid_to": "2026-10-06",
+      "verification_status": "verified",
+      "brands": [
+        "未指定品牌"
+      ],
+      "regions": [
+        "上海"
+      ]
+    },
+    {
+      "source_id": "src_moe_teachers_day_2026",
+      "title": "教育部 2026 年教师节通知",
+      "source_type": "PUBLIC",
+      "source_date": "2026-08-21",
+      "url": "https://www.moe.gov.cn/srcsite/A10/s7002/202608/t20260821_1447456.html",
+      "file": "sources/06-moe-teachers-day-2026.md",
+      "event_key": "teachers-day-2026",
+      "version_group": "teachers-day-2026",
+      "version_rank": 1,
+      "supersedes": [],
+      "duplicate_of": null,
+      "valid_from": "2026-09-10",
+      "valid_to": "2026-09-10",
+      "verification_status": "verified",
+      "brands": [
+        "未指定品牌"
+      ],
+      "regions": [
+        "全国"
+      ]
+    },
+    {
+      "source_id": "src_state_council_holidays_2026",
+      "title": "国务院 2026 年节假日安排（中秋、国庆）",
+      "source_type": "PUBLIC",
+      "source_date": "2025-11-04",
+      "url": "https://www.gov.cn/yaowen/liebiao/202511/content_7047099.htm",
+      "file": "sources/07-state-council-holidays-2026.md",
+      "event_key": "china-holiday-calendar-2026",
+      "version_group": "china-holiday-calendar-2026",
+      "version_rank": 1,
+      "supersedes": [],
+      "duplicate_of": null,
+      "valid_from": "2026-09-25",
+      "valid_to": "2026-10-07",
+      "verification_status": "verified",
+      "brands": [
+        "未指定品牌"
+      ],
+      "regions": [
+        "全国"
+      ]
+    },
+    {
+      "source_id": "src_shanghai_mxgp_2026",
+      "title": "2026 MXGP 中国上海站（9 月 11 日至 13 日）",
+      "source_type": "PUBLIC",
+      "source_date": "2026-06-12",
+      "url": "https://www.shanghai.gov.cn/nw9820/20260612/2cba73c5a6704d05a2eb8ea3685da9d4.html",
+      "file": "sources/08-shanghai-mxgp-2026.md",
+      "event_key": "shanghai-mxgp-2026",
+      "version_group": "shanghai-mxgp-2026",
+      "version_rank": 1,
+      "supersedes": [],
+      "duplicate_of": null,
+      "valid_from": "2026-09-11",
+      "valid_to": "2026-09-13",
+      "verification_status": "verified",
+      "brands": [
+        "未指定品牌"
+      ],
+      "regions": [
+        "上海"
+      ]
+    },
+    {
+      "source_id": "src_manual_shanghai_coffee_popup_20260912",
+      "title": "9 月 12 日上海咖啡快闪（人工待核便签）",
+      "source_type": "MANUAL",
+      "source_date": "2026-08-28",
+      "url": null,
+      "file": "sources/09-manual-shanghai-coffee-popup-unverified.md",
+      "event_key": "shanghai-coffee-popup-2026-09-12",
+      "version_group": "shanghai-coffee-popup-2026-09-12",
+      "version_rank": 1,
+      "supersedes": [],
+      "duplicate_of": null,
+      "valid_from": "2026-09-12",
+      "valid_to": "2026-09-12",
+      "verification_status": "unverified",
+      "brands": [
+        "未指定品牌"
+      ],
+      "regions": [
+        "上海"
+      ]
+    },
+    {
+      "source_id": "src_shanghai_coffee_festival_2025_expired",
+      "title": "2025 上海咖啡节旧材料（已过期）",
+      "source_type": "REPLAY",
+      "source_date": "2025-05-01",
+      "url": null,
+      "file": "sources/10-shanghai-coffee-festival-2025-expired.md",
+      "event_key": "shanghai-coffee-festival-2025",
+      "version_group": "shanghai-coffee-festival-2025",
+      "version_rank": 1,
+      "supersedes": [],
+      "duplicate_of": null,
+      "valid_from": null,
+      "valid_to": "2025-12-31",
+      "verification_status": "verified",
+      "brands": [
+        "未指定品牌"
+      ],
+      "regions": [
+        "上海"
+      ]
+    }
+  ]
+}

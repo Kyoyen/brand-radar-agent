@@ -4,7 +4,9 @@
 
 ## 交接结论
 
-本仓库已完成第一版业务主线和文档入口整理。当前还不是可验收的 Brand Radar Agent；Mac Mini 的任务是把文档里的单一业务链落成真实 API Key 可跑通的 CLI Agent，再接 Dashboard。
+本仓库已在目标提交 `08704a00e2e3105934b4345154babbd91ff67a4a` 之上完成并验收 Day 1–2 可运行骨架：33 项测试通过，缺 Key 与错误 Key 会明确失败，真实 `deepseek-v4-flash` 默认观察包和关键词变体均生成通过专用校验的结果。流程默认停在人工复核前。
+
+这只通过了“真能跑”硬门，不能称为完整 Brand Radar Agent Demo。当前是代码原生的受约束单 Agent 工作流，不是 Dify；前置阶段由程序固定执行，尚无 Agent 调查计划、白名单工具选择、反馈调整和最多一次校验修正。
 
 第一版目标只做一件事：使用真实模型 API Key 读取咖啡品类 Replay / 人工补充材料，输出下周企划会需要的情报流、30 天日历、重点关键词和 3 条 Brief，并停在人工复核前。
 
@@ -18,6 +20,7 @@
 4. `docs/product/AGENT-BUILD.md`
 5. `docs/product/ROADMAP.md`
 6. `docs/PROJECT-STATE.md`
+7. `docs/handoff/MACMINI-HANDOFF.md`（当前文件，用于核对交接边界）
 
 这些文件是当前事实源。历史对话、旧根目录规划稿、V1-V3 示例和 Mock 输出不能覆盖这条主线。
 
@@ -29,27 +32,25 @@
 - 新增 `docs/product/AGENT-BUILD.md`，保留“怎么打造 Agent”的工程说明。
 - Roadmap 和 Project State 已改成 Mac Mini 可以直接接续的五天计划与缺口清单。
 - `.env.example` 已明确 Mock 只用于烟雾测试；`.gitignore` 已忽略 `.env`、`outputs/`、`memory/` 和本地日志。
+- 已准备咖啡 Replay 包及人工期望结果，包含重复、版本替换、过期、待核和风险节点。
+- 已实现 `brand_radar_weekly`、专用证据链校验和 `--weekly / --source-pack / --require-api`。
+- weekly 入口只注册本地只读工具，结果强制 `external_actions=[]` 与 `awaiting_human_review`。
+- 故意错误的 DeepSeek Key 已验证为明确鉴权失败，未降级 Mock、未生成结果。
+- 真实 DeepSeek 默认观察包生成 7 张情报卡和 3 条不同视角 Brief；三条 Brief 均引用存在的情报卡。
+- 只将关键词从 `社区空间` 改为 `早餐通勤` 的真实变体验收产生了可解释变化，没有制造无证据的早餐结论。
+- 人工逐卡复核未发现捏造经营数字；“中秋国庆竞品空位”Brief 仍缺竞品节日动作的直接材料，已在输出中标为 missing_evidence，不能把合法引用误写成调查充分。
 
 ## 已知事实
 
 - `run.py` 是当前 CLI 入口，现有命令 `python3 run.py --help` 和 `python3 run.py --list` 可作为基线检查。
-- `framework/llm_client.py` 支持 OpenAI、Anthropic、DeepSeek、Moonshot 和 Zhipu，但缺 Key 会自动进入 Mock；V1 需要增加 `--require-api` 之类的验收开关。
+- `framework/llm_client.py` 支持 OpenAI、Anthropic、DeepSeek、Moonshot 和 Zhipu；weekly 的 `--require-api` 会禁止缺 Key 或请求失败时进入 Mock。
 - `framework/agent_runner.py` 已有场景识别、工具调用、轮次限制、重复调用保护和结构化输出解析。
-- `framework/scenario_registry.json` 仍是早期多场景配置，包含自动飞书推送意图和未注册工具名，不适合作为 V1 默认入口。
-- 当前尚无咖啡品类 Replay 观察包、`brand_radar_weekly` 场景、专用结果校验、Dashboard、真实 Key 端到端运行证据。
+- `framework/scenario_registry.json` 仍保留早期多场景配置，但 `brand_radar_weekly` 只注册四个本地只读阶段，不注册飞书或其他外部写入工具。
+- 咖啡 Replay 包、`brand_radar_weekly`、专用结果校验和真实 Key 证据均已具备；Dashboard 尚未实现。
 
-## Mac Mini 第一项任务
+## Mac Mini 下一项任务
 
-先做开发计划第一、二天，不先迁移旧目录，不先做实时抓取，不引入多 Agent、数据库、账号或调度。
-
-实现范围：
-
-- 新建 `data/replay/coffee-week-2026-09-07/manifest.json` 和 `sources/`，每份材料包含来源、日期、链接或文件位置、来源类型和版本线索。
-- Replay 包至少包含一组重复事件、一组新旧版本、一项无关或过期内容、一项待核内容和一个风险节点。
-- 新增 `scenarios/brand_radar_weekly.py`，只读本次观察包，完成读取、版本核对、事件合并、优先级判断、日历、关键词和 Brief 生成。
-- 新增 Brand Radar 专用输出校验：卡片 ID 唯一、来源存在、Brief 引用有效、日期格式正确、来源类型明确、外发动作为空。
-- 在 `run.py` 增加周企划入口和真实模型必需模式。缺 Key、错误 Key、网络失败或模型异常时必须清楚失败，不能静默降级 Mock。
-- 输出写入 `outputs/`，该目录不提交 Git。Dashboard 后续必须读取同一份结果，不能另写静态结论。
+Day 1–2 已完成，不在交接时重复调用真实 API。下一阶段只有在用户明确启动后，才补最小有界闭环：“目标 → 观察 → Agent 计划 / 白名单工具选择 → 工具反馈 → 生成 → 专用校验 → 最多一次修正 → 人工复核”。这道硬门通过后再做 Dashboard；不要迁移 Dify，也不要扩张到实时抓取、多 Agent、数据库、账号系统或旧目录迁移。
 
 ## 目标命令
 
@@ -60,7 +61,7 @@ python3 run.py --help
 python3 run.py --list
 ```
 
-实现完成后应支持：
+当前已支持：
 
 ```bash
 python3 run.py --weekly \
@@ -89,5 +90,6 @@ python3 run.py --weekly \
 - 不提交 `.env`、API Key、Cookie、Keychain、`.venv`、缓存、Codex 状态库或运行输出。
 - 不把 Mock 输出、Replay 样例或早期静态页面描述成真实业务结果。
 - 不强推默认分支。
+- 不为了“更像 Agent”迁移 Dify 或增加多 Agent。
 - 不移动 `run.py`、`framework/`、`v3_agent/tools.py`、`scenarios/tools_real.py`，直到新入口跑通且回归命令更新。
 - 不自动发送飞书、发稿、投放、改预算或调用任何外部写入动作。

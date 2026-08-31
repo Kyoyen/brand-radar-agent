@@ -2,7 +2,7 @@
 
 Brand Radar 是一个给营销企划人员使用的情报整理 Agent。企划人员说明品牌、品类、地区、竞品和本周要回答的问题后，Agent 读取已经准备好的 Replay 材料和公开来源，把零散信息整理成下周可以讨论的营销机会、风险节点和 Brief 角度。
 
-第一版的核心验收是：配置真实模型 API Key 后，完整跑通一次“明确任务 → 读取材料 → 核对来源与版本 → 合并事件 → 判断优先级 → 生成企划结果 → 人工复核”的流程。无 Key 的 Mock 运行只用于检查程序链路，不能代替第一版业务验收。
+第一版要依次通过两道硬门：先证明真实 Key 能稳定跑完整链路，再证明系统会围绕营销目标形成受限调查计划、选择必要的本地查证动作、读取反馈并调整判断。无 Key 的 Mock 运行只用于检查程序链路，不能代替任何一道业务验收。
 
 ## 下周默认场景
 
@@ -32,7 +32,7 @@ Brand Radar 是一个给营销企划人员使用的情报整理 Agent。企划�
 
 ## 第一版运行口径
 
-- 真实模型模式：从本机环境读取 API Key，由模型完成材料选择、判断和 Brief 生成，是第一版必须跑通的验收路径。
+- 真实模型模式：从本机环境读取 API Key；当前 Day 1–2 由模型基于程序整理后的证据完成判断和 Brief 生成，后续硬门二再补齐 Agent 调查计划与受限查证动作。
 - Replay 材料：提供稳定、可复查的输入，不冒充实时监测结果。
 - 公开来源：可由使用者补充链接或材料；第一版不以全网实时抓取为前提。
 - Mock 模式：未配置 Key 时用于开发烟雾测试，输出必须清楚标记，不能被展示成真实判断。
@@ -40,9 +40,9 @@ Brand Radar 是一个给营销企划人员使用的情报整理 Agent。企划�
 
 ## 当前状态
 
-仓库已有 Python CLI Agent 原型，包含多模型接入、工具调用、轮次保护和结构化输出。它证明了技术链路可以复用，但当前默认场景、工具和输出仍是早期探索内容，尚未形成瑞幸 / 咖啡品类的完整 Brand Radar 流程。
+Day 1–2 的可运行骨架已经跑通：咖啡 Replay 观察包、`brand_radar_weekly`、Brand Radar 专用结果校验，以及 `--weekly / --source-pack / --require-api` 均已实现。2026 年 8 月 31 日使用 `deepseek-v4-flash` 真实 API 生成了 7 张情报卡和 3 条不同视角 Brief，并通过来源、版本、合并、引用和人工复核边界校验。这证明“真能跑”，但还不能称为完整 Brand Radar Agent Demo。
 
-下一步在 Mac Mini 上先打通真实 API Key + Replay 材料的单场景 Agent，再把同一份结果接到 Dashboard。不要先重写框架，也不要先移动仍被运行入口依赖的代码。
+当前架构是代码原生的受约束单 Agent 工作流，不是 Dify；Dify 是否使用与产品是否构成 Agent 是两件事，V1 不为“更像 Agent”迁移平台。当前最薄弱处是 weekly 前置阶段仍由程序固定执行，模型尚未真实选择下一步，校验失败后也没有最多一次的受限修正。下一阶段应先补齐“目标 → 观察 → Agent 计划 / 白名单工具选择 → 工具反馈 → 生成 → 专用校验 → 最多一次修正 → 人工复核”，再接 Dashboard。整个流程仍不发送飞书、不发布、不投放、不改预算。
 
 ## 文档入口
 
@@ -52,24 +52,26 @@ Brand Radar 是一个给营销企划人员使用的情报整理 Agent。企划�
 4. [开发计划](docs/product/ROADMAP.md)：五天开发与验收顺序。
 5. [当前状态](docs/PROJECT-STATE.md)：已确认资产、缺口和仓库整理决定。
 6. [Mac Mini 交接说明](docs/handoff/MACMINI-HANDOFF.md)：目标命令、第一项开发工作和不能破坏的边界。
-6. [Mac Mini 交接说明](docs/handoff/MACMINI-HANDOFF.md)：下一台机器继续开发的任务边界、命令和验收口径。
 
 ## 仓库入口
 
-- `run.py`：现有 CLI 入口，暂时保留。
+- `run.py`：当前 weekly CLI 入口，同时保留旧 CLI 兼容命令。
 - `framework/`：模型接入、执行循环、上下文和输出基础能力，优先复用。
 - `v3_agent/tools.py`、`scenarios/tools_real.py`：当前仍被执行器引用，先作为早期工具资产保留。
 - `v1_basic/`、`v2_structured/`、`v3_agent/agent.py`：演进过程参考，不是当前产品入口。
 - `docs/`：当前产品、业务流程和交接事实源。
 
-现有 CLI 基线命令：
+当前 Day 1–2 验收命令：
 
 ```bash
 python3 run.py --help
 python3 run.py --list
+python3 run.py --weekly \
+  --source-pack data/replay/coffee-week-2026-09-07/manifest.json \
+  --require-api
 ```
 
-需要从零准备环境时，再按 `requirements.txt` 创建本机虚拟环境。不要复制其他电脑的 `.venv` 或把 API Key 写进仓库。
+`--require-api` 会让缺 Key、错误 Key和模型失败明确停止，不能静默降级 Mock。需要从零准备环境时，再按 `requirements.txt` 创建本机虚拟环境。不要复制其他电脑的 `.venv` 或把 API Key 写进仓库。
 
 ## 来源边界
 

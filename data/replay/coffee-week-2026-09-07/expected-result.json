@@ -1,0 +1,267 @@
+{
+  "executive_summary": "本次人工期望线保留 7 张可复核情报卡：上海旅游节夏季旧预告应被完整当前版取代，2025 上海咖啡节旧材料应排除，中英文官方摘要应合并为一张旅游节卡；9 月 12 日上海咖啡快闪仍是待核便签。旅游节与 MXGP 提供观察周内的城市消费场景，教师节先进入风险控制，中秋与国庆进入准备窗；星巴克兴趣社区空间和瑞幸官方业绩只作为方向与经营背景。所有建议停在人工复核前。",
+  "intelligence_cards": [
+    {
+      "card_id": "card_luckin_q2_2026",
+      "title": "瑞幸 Q2 官方业绩只作为品牌经营背景",
+      "fact_summary": "瑞幸通过投资者关系渠道发布 2026 年第二季度业绩；本 Replay 摘要没有保留具体经营数字。",
+      "brands": ["瑞幸咖啡"],
+      "event_date": null,
+      "regions": ["全国"],
+      "event_type": "brand_performance_context",
+      "priority": "continue_observing",
+      "why_it_matters": "这是瑞幸企划语境的官方背景，但不足以直接推出本周营销动作。",
+      "recommendation": "若正式 Brief 需要经营数字，先由人工重新核对官方原页。",
+      "risk_notes": ["不得补写未在材料中的营收、门店、利润或增长结论"],
+      "pending_questions": ["本周判断是否确实需要引用业绩数值？"],
+      "source_ids": ["src_luckin_q2_2026"]
+    },
+    {
+      "card_id": "card_starbucks_interest_community",
+      "title": "星巴克中国以兴趣社区空间延伸门店关系",
+      "fact_summary": "星巴克中国新闻中心在 2026 年 7 月 30 日列出与兴趣社区空间有关的更新。",
+      "brands": ["星巴克中国"],
+      "event_date": "2026-07-30",
+      "regions": ["全国"],
+      "event_type": "competitor_positioning",
+      "priority": "continue_observing",
+      "why_it_matters": "它提供一个竞品经营线下社群与空间体验的方向性对照。",
+      "recommendation": "补充具体门店和用户事实后，再判断瑞幸是否存在可讨论的场景空位。",
+      "risk_notes": [
+        "不能把方向性更新夸大为全国落地或已验证效果",
+        "其他竞品缺少材料不等于没有动作"
+      ],
+      "pending_questions": [],
+      "source_ids": ["src_starbucks_interest_community_20260730"]
+    },
+    {
+      "card_id": "card_shanghai_tourism_festival_2026",
+      "title": "上海旅游节完整活动窗覆盖本周与 30 天日历",
+      "fact_summary": "当前官方版本给出的 2026 上海旅游节活动窗为 7 月 8 日至 10 月 6 日；英文官方摘要描述同一事件。",
+      "brands": ["未指定品牌"],
+      "event_date": "2026-07-08",
+      "regions": ["上海"],
+      "event_type": "city_consumption_window",
+      "priority": "follow_up_this_week",
+      "why_it_matters": "观察周和未来 30 天都处在活动期，可作为上海消费场景的上位时间背景。",
+      "recommendation": "核对具体活动点位、交通和周边门店覆盖，再决定是否进入正式 Brief。",
+      "risk_notes": ["活动存在不等于与瑞幸或竞品有合作，也不代表确定客流"],
+      "pending_questions": ["哪些活动点位与瑞幸门店覆盖实际重合？"],
+      "source_ids": [
+        "src_shanghai_tourism_full_v2",
+        "src_shanghai_tourism_official_summary_dup"
+      ]
+    },
+    {
+      "card_id": "card_teachers_day_2026",
+      "title": "9 月 10 日教师节是本周传播风险节点",
+      "fact_summary": "教育部发布 2026 年教师节通知，9 月 10 日位于本次观察周内。",
+      "brands": ["未指定品牌"],
+      "event_date": "2026-09-10",
+      "regions": ["全国"],
+      "event_type": "sensitive_calendar_node",
+      "priority": "actively_avoid",
+      "why_it_matters": "节点具有传播可见度，但商业表达需要先过品牌安全和人工复核。",
+      "recommendation": "先核对品牌已有安排与禁用表达，本周不自动生成促销承诺。",
+      "risk_notes": ["避免未经依据的公益承诺、身份泛化和借节日过度促销"],
+      "pending_questions": ["品牌是否已有教师节安排或明确禁用表达？"],
+      "source_ids": ["src_moe_teachers_day_2026"]
+    },
+    {
+      "card_id": "card_holiday_calendar_2026",
+      "title": "中秋与国庆进入未来 30 天准备窗",
+      "fact_summary": "国务院安排显示中秋假期为 9 月 25 日至 27 日，国庆假期为 10 月 1 日至 7 日。",
+      "brands": ["未指定品牌"],
+      "event_date": "2026-09-25",
+      "regions": ["全国"],
+      "event_type": "holiday_planning_window",
+      "priority": "continue_observing",
+      "why_it_matters": "观察周虽无需立即外发，但已经进入节前企划和资源准备期。",
+      "recommendation": "把双节准备列为内部排期，并在人工批准前保持草稿状态。",
+      "risk_notes": ["30 天日历止于 10 月 6 日，不能误写成国庆假期当天结束"],
+      "pending_questions": ["品牌既有双节排期和资源约束是什么？"],
+      "source_ids": ["src_state_council_holidays_2026"]
+    },
+    {
+      "card_id": "card_shanghai_mxgp_2026",
+      "title": "上海 MXGP 赛事与观察周周末重合",
+      "fact_summary": "上海官方材料记录 2026 MXGP 中国上海站于 9 月 11 日至 13 日举行。",
+      "brands": ["未指定品牌"],
+      "event_date": "2026-09-11",
+      "regions": ["上海"],
+      "event_type": "sports_event",
+      "priority": "follow_up_this_week",
+      "why_it_matters": "它为上海出行、观赛和线下消费场景提供明确的周末时间窗。",
+      "recommendation": "核对场地、交通节点和周边门店覆盖后，再评估轻量场景假设。",
+      "risk_notes": ["不得暗示瑞幸、竞品或赛事之间存在未披露合作"],
+      "pending_questions": ["赛事场地和交通节点附近有哪些可用门店？"],
+      "source_ids": ["src_shanghai_mxgp_2026"]
+    },
+    {
+      "card_id": "card_shanghai_coffee_popup_pending",
+      "title": "9 月 12 日上海咖啡快闪待核",
+      "fact_summary": "材料只有一则人工便签，活动是否存在尚未验证。",
+      "brands": ["未指定品牌"],
+      "event_date": "2026-09-12",
+      "regions": ["上海"],
+      "event_type": "unverified_manual_tip",
+      "priority": "needs_verification",
+      "why_it_matters": "日期和品类高度相关，但证据不足，不能形成确定建议。",
+      "recommendation": "先补齐主办方或场地方公开页面、时间、地址和品牌关系；未核前不进入正式 Brief。",
+      "risk_notes": ["把便签写成公开活动事实会造成误导"],
+      "pending_questions": [
+        "主办方或场地方是否发布公开页面？",
+        "活动时间、地址和参与品牌分别是什么？"
+      ],
+      "source_ids": ["src_manual_shanghai_coffee_popup_20260912"]
+    }
+  ],
+  "calendar": [
+    {
+      "date": "2026-09-10",
+      "title": "教师节",
+      "kind": "risk_node",
+      "card_ids": ["card_teachers_day_2026"]
+    },
+    {
+      "date": "2026-09-11",
+      "title": "上海 MXGP 开始",
+      "kind": "event_start",
+      "card_ids": ["card_shanghai_mxgp_2026"]
+    },
+    {
+      "date": "2026-09-12",
+      "title": "咖啡快闪便签（待核）",
+      "kind": "unverified_tip",
+      "card_ids": ["card_shanghai_coffee_popup_pending"]
+    },
+    {
+      "date": "2026-09-25",
+      "title": "中秋假期开始",
+      "kind": "holiday_start",
+      "card_ids": ["card_holiday_calendar_2026"]
+    },
+    {
+      "date": "2026-10-01",
+      "title": "国庆假期开始",
+      "kind": "holiday_start",
+      "card_ids": ["card_holiday_calendar_2026"]
+    },
+    {
+      "date": "2026-10-06",
+      "title": "上海旅游节当前版结束 / 本包日历结束",
+      "kind": "window_boundary",
+      "card_ids": ["card_shanghai_tourism_festival_2026"]
+    }
+  ],
+  "keywords": [
+    {
+      "keyword": "上海城市活动",
+      "why_it_matters": "旅游节和 MXGP 同时提供上海线下消费场景线索。",
+      "card_ids": [
+        "card_shanghai_tourism_festival_2026",
+        "card_shanghai_mxgp_2026"
+      ]
+    },
+    {
+      "keyword": "兴趣社区",
+      "why_it_matters": "它是当前唯一有明确材料支撑的竞品空间与社群方向。",
+      "card_ids": ["card_starbucks_interest_community"]
+    },
+    {
+      "keyword": "教师节",
+      "why_it_matters": "位于观察周内，优先用于风险控制而不是自动促销。",
+      "card_ids": ["card_teachers_day_2026"]
+    },
+    {
+      "keyword": "中秋国庆",
+      "why_it_matters": "两个官方假期已进入未来 30 天准备窗。",
+      "card_ids": ["card_holiday_calendar_2026"]
+    },
+    {
+      "keyword": "咖啡快闪",
+      "why_it_matters": "品类相关但来源未核，应提醒企划人员补证而非当作机会。",
+      "card_ids": ["card_shanghai_coffee_popup_pending"]
+    }
+  ],
+  "briefs": [
+    {
+      "brief_id": "brief_consumption_scenario",
+      "perspective": "consumption_scenario",
+      "angle": "赛事周末叠加城市节庆的上海移动补给场景",
+      "why_now": "MXGP 与观察周周末重合，上海旅游节也仍在当前有效期。",
+      "audience_or_scenario": "9 月 11 日至 13 日在上海出行、观赛或城市游览的人群与周边门店场景。",
+      "card_ids": [
+        "card_shanghai_mxgp_2026",
+        "card_shanghai_tourism_festival_2026"
+      ],
+      "next_step": "人工核对场地、交通节点和周边门店覆盖，再决定是否进入正式 Brief。",
+      "risk_note": "不得把城市活动自动等同于瑞幸合作、专属权益或确定客流。",
+      "missing_evidence": ["具体活动点位", "周边门店覆盖", "可执行资源"]
+    },
+    {
+      "brief_id": "brief_competitor_gap",
+      "perspective": "competitor_gap",
+      "angle": "以社区兴趣连接为对照，检查瑞幸的轻量社群场景空位",
+      "why_now": "本包有星巴克方向性材料和瑞幸官方经营背景，足以提出问题，但不足以宣称竞争胜负。",
+      "audience_or_scenario": "希望在门店之外获得兴趣连接与轻量参与感的咖啡用户。",
+      "card_ids": [
+        "card_starbucks_interest_community",
+        "card_luckin_q2_2026"
+      ],
+      "next_step": "补充瑞幸已有社群、会员和门店活动事实，再由企划人员判断是否有真实空位。",
+      "risk_note": "不能杜撰星巴克项目规模或效果，也不能把其他竞品缺材料解读成没有动作。",
+      "missing_evidence": [
+        "瑞幸现有社群或会员活动",
+        "星巴克具体落地点与规模",
+        "库迪、Manner、麦咖啡同期材料"
+      ]
+    },
+    {
+      "brief_id": "brief_timing_window",
+      "perspective": "timing_window",
+      "angle": "教师节后至中秋前：本周克制表达，转入双节准备",
+      "why_now": "教师节位于观察周，中秋和国庆已经进入未来 30 天准备窗。",
+      "audience_or_scenario": "负责 9 月传播安全和中秋、国庆企划排期的品牌与门店团队。",
+      "card_ids": [
+        "card_teachers_day_2026",
+        "card_holiday_calendar_2026"
+      ],
+      "next_step": "先核对品牌安全边界与既有排期，再分别形成教师节风险清单和双节准备清单。",
+      "risk_note": "不得把官方节日安排变成未经批准的促销承诺；国庆日历还需说明 10 月 7 日超出本包显示窗。",
+      "missing_evidence": ["品牌教师节禁用表达", "双节既有 Campaign 与资源排期"]
+    }
+  ],
+  "human_review": {
+    "status": "awaiting_human_review",
+    "items": [
+      {
+        "review_id": "review_teachers_day_boundary",
+        "question": "教师节相关表达是否符合品牌安全边界，是否应继续主动避开？",
+        "card_ids": ["card_teachers_day_2026"]
+      },
+      {
+        "review_id": "review_shanghai_store_coverage",
+        "question": "旅游节与 MXGP 的具体点位是否与可执行门店覆盖重合？",
+        "card_ids": [
+          "card_shanghai_tourism_festival_2026",
+          "card_shanghai_mxgp_2026"
+        ]
+      },
+      {
+        "review_id": "review_popup_evidence",
+        "question": "咖啡快闪便签是否已经补齐主办方、时间、地址与品牌参与证据？",
+        "card_ids": ["card_shanghai_coffee_popup_pending"]
+      },
+      {
+        "review_id": "review_competitor_evidence_gap",
+        "question": "是否需要补充其他竞品与瑞幸自身社群材料后再讨论竞品空位？",
+        "card_ids": [
+          "card_starbucks_interest_community",
+          "card_luckin_q2_2026"
+        ]
+      }
+    ],
+    "external_actions": []
+  }
+}

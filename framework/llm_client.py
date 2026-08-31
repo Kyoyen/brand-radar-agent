@@ -6,13 +6,13 @@ LLM Client — 大模型接口抽象层
 支持的模型平台（LLM_PROVIDER）：
   openai    — GPT-4o-mini / GPT-4o（默认）
   anthropic — Claude Haiku / Sonnet
-  deepseek  — DeepSeek Chat（国内可用，价格低）
+  deepseek  — DeepSeek V4 Flash（国内可用，价格低）
   moonshot  — 月之暗面 Kimi
   zhipu     — 智谱 GLM（有免费额度）
 
 切换示例（只改 .env）：
   LLM_PROVIDER=deepseek
-  LLM_MODEL=deepseek-chat
+  LLM_MODEL=deepseek-v4-flash
   DEEPSEEK_API_KEY=
 """
 
@@ -22,21 +22,119 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+PROVIDER_KEY_ENV = {
+    "openai": "OPENAI_API_KEY",
+    "anthropic": "ANTHROPIC_API_KEY",
+    "deepseek": "DEEPSEEK_API_KEY",
+    "moonshot": "MOONSHOT_API_KEY",
+    "zhipu": "ZHIPUAI_API_KEY",
+}
+
+PROVIDER_KEY_ENV_FALLBACKS = {
+    "zhipu": ("ZHIPU_API_KEY",),
+}
+
+DEFAULT_MODELS = {
+    "openai": "gpt-4o-mini",
+    "anthropic": "claude-haiku-4-5-20251001",
+    "zhipu": "glm-4.7-flash",
+    "moonshot": "moonshot-v1-8k",
+    "deepseek": "deepseek-v4-flash",
+}
+
+
+class LLMConfigurationError(EnvironmentError):
+    """Provider selection or credentials are not configured safely."""
+
+
+class LLMRequestError(RuntimeError):
+    """Sanitized provider failure that never includes credentials or headers."""
+
+    SAFE_MESSAGES = {
+        "authentication": "API Key 无效、已过期或未获当前模型授权",
+        "network": "无法连接模型服务，请检查网络与代理",
+        "rate_limit": "模型服务触发账户速率限制",
+        "quota": "账户额度、套餐权限或调用上限不足",
+        "request_rejected": "模型服务拒绝了请求参数",
+        "provider_unavailable": "模型当前访问量过大或服务暂时不可用",
+        "request_failed": "模型请求失败",
+    }
+
+    def __init__(self, category: str, provider: str, model: str, business_code: str | None = None):
+        self.category = category
+        self.provider = provider
+        self.model = model
+        self.business_code = business_code
+        code_suffix = f", error_code={business_code}" if business_code else ""
+        super().__init__(
+            f"{self.SAFE_MESSAGES.get(category, self.SAFE_MESSAGES['request_failed'])}"
+            f"（provider={provider}, model={model}{code_suffix}）"
+        )
+
+    @classmethod
+    def from_exception(cls, exc: Exception, provider: str, model: str) -> "LLMRequestError":
+        name = type(exc).__name__.lower()
+        status = getattr(exc, "status_code", None)
+        if status is None:
+            response = getattr(exc, "response", None)
+            status = getattr(response, "status_code", None)
+
+        body = getattr(exc, "body", None)
+        error_body = body.get("error", body) if isinstance(body, dict) else {}
+        raw_business_code = error_body.get("code") if isinstance(error_body, dict) else None
+        business_code = str(raw_business_code) if raw_business_code is not None else None
+
+        if business_code in {"1000", "1001", "1002", "1003", "1004"}:
+            category = "authentication"
+        elif business_code in {"1113", "1304", "1308", "1309", "1310", "1311"}:
+            category = "quota"
+        elif business_code == "1302":
+            category = "rate_limit"
+        elif business_code == "1305":
+            category = "provider_unavailable"
+        elif status in (401, 403) or "authentication" in name or "permissiondenied" in name:
+            category = "authentication"
+        elif status == 429 or "ratelimit" in name:
+            category = "rate_limit"
+        elif (
+            "connection" in name
+            or "connect" in name
+            or "timeout" in name
+            or "network" in name
+        ):
+            category = "network"
+        elif status == 400 or "badrequest" in name:
+            category = "request_rejected"
+        elif isinstance(status, int) and status >= 500:
+            category = "provider_unavailable"
+        else:
+            category = "request_failed"
+        return cls(category, provider, model, business_code=business_code)
+
+
 class LLMClient:
-    def __init__(self, provider: str = None, model: str = None, api_key: str = None):
+    def __init__(self, provider: str = None, model: str = None, api_key: str = None,
+                 require_api: bool = False):
         self.provider = (provider or os.getenv("LLM_PROVIDER", "deepseek")).lower()
+        if self.provider not in PROVIDER_KEY_ENV:
+            allowed = "/".join(PROVIDER_KEY_ENV)
+            raise LLMConfigurationError(f"不支持的 LLM_PROVIDER: {self.provider}。可选：{allowed}")
         self.model    = model    or os.getenv("LLM_MODEL", self._default_model())
-        # 缺 key 时降级 Mock，让框架在零配置下也能跑通
+        # 只有“未配置 Key”允许进入 Mock；依赖或客户端配置错误必须明确失败。
         try:
             self.api_key = api_key or self._load_api_key()
-            self._client = self._build_client()
-            self._mock   = False
-        except EnvironmentError:
+        except LLMConfigurationError:
+            if require_api:
+                raise
             print(f"  [⚠ MOCK 模式] 未配置 {self.provider} API Key，已启用 MockProvider")
             print(f"  [提示] 配置 .env 中的 API Key 即可切换到真实模型")
             self.api_key = None
             self._client = None
             self._mock   = True
+            return
+
+        self._client = self._build_client()
+        self._mock   = False
 
     # ── 公开接口 ──────────────────────────────────────────────────────────────
 
@@ -45,12 +143,14 @@ class LLMClient:
         """统一对话接口，屏蔽底层平台差异。"""
         if self._mock:
             return self._chat_mock(messages, tools)
-        if self.provider in ("openai", "zhipu", "moonshot", "deepseek"):
-            return self._chat_openai_compat(messages, tools, temperature, max_tokens, response_format)
-        elif self.provider == "anthropic":
+        try:
+            if self.provider in ("openai", "zhipu", "moonshot", "deepseek"):
+                return self._chat_openai_compat(messages, tools, temperature, max_tokens, response_format)
             return self._chat_anthropic(messages, tools, temperature, max_tokens)
-        else:
-            raise ValueError(f"不支持的 LLM_PROVIDER: {self.provider}。可选：openai/anthropic/deepseek/moonshot/zhipu")
+        except LLMRequestError:
+            raise
+        except Exception as exc:
+            raise LLMRequestError.from_exception(exc, self.provider, self.model) from exc
 
     def parse(self, messages: list, schema_class, temperature: float = 0.2):
         """结构化输出：让模型输出符合 Pydantic Schema 的 JSON。"""
@@ -76,10 +176,13 @@ class LLMClient:
         suffix = " [MOCK]" if self._mock else ""
         return f"LLMClient(provider={self.provider}, model={self.model}){suffix}"
 
+    @property
+    def is_mock(self) -> bool:
+        return self._mock
+
     # ── 内部实现 ──────────────────────────────────────────────────────────────
 
     def _build_client(self):
-        from openai import OpenAI
         base_urls = {
             "zhipu":    "https://open.bigmodel.cn/api/paas/v4/",
             "moonshot": "https://api.moonshot.cn/v1",
@@ -88,14 +191,32 @@ class LLMClient:
         if self.provider == "anthropic":
             try:
                 import anthropic
-                return anthropic.Anthropic(api_key=self.api_key)
-            except ImportError:
-                raise ImportError("pip install anthropic")
-        return OpenAI(api_key=self.api_key, base_url=base_urls.get(self.provider))
+                return anthropic.Anthropic(api_key=self.api_key, timeout=60.0, max_retries=0)
+            except ImportError as exc:
+                raise LLMConfigurationError(
+                    "缺少 anthropic 依赖，无法调用 Anthropic Provider；请先安装 requirements.txt"
+                ) from exc
+        try:
+            from openai import OpenAI
+        except ImportError as exc:
+            raise LLMConfigurationError(
+                "缺少 openai 依赖，无法调用当前 OpenAI-compatible Provider；请先安装 requirements.txt"
+            ) from exc
+        return OpenAI(
+            api_key=self.api_key,
+            base_url=base_urls.get(self.provider),
+            timeout=60.0,
+            max_retries=0,
+        )
 
     def _chat_openai_compat(self, messages, tools, temperature, max_tokens, response_format):
         kwargs = dict(model=self.model, messages=messages,
                       temperature=temperature, max_tokens=max_tokens)
+        # DeepSeek V4 defaults to high-effort thinking. This client historically
+        # used the non-thinking ``deepseek-chat`` path, and weekly JSON generation
+        # needs the final answer rather than a reasoning-only response.
+        if self.provider == "deepseek":
+            kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"
@@ -250,14 +371,14 @@ class LLMClient:
         return _Resp(content)
 
     def _default_model(self):
-        return {"openai":"gpt-4o-mini","anthropic":"claude-haiku-4-5-20251001",
-                "zhipu":"glm-4-flash","moonshot":"moonshot-v1-8k","deepseek":"deepseek-chat"}.get(self.provider,"deepseek-chat")
+        return DEFAULT_MODELS[self.provider]
 
     def _load_api_key(self):
-        key_map = {"openai":"OPENAI_API_KEY","anthropic":"ANTHROPIC_API_KEY",
-                   "zhipu":"ZHIPU_API_KEY","moonshot":"MOONSHOT_API_KEY","deepseek":"DEEPSEEK_API_KEY"}
-        key = os.getenv(key_map.get(self.provider, "OPENAI_API_KEY"))
-        if not key:
-            env_var = key_map.get(self.provider, "OPENAI_API_KEY")
-            raise EnvironmentError(f"缺少 {env_var}，请在 .env 中添加。")
-        return key
+        primary = PROVIDER_KEY_ENV[self.provider]
+        candidates = (primary, *PROVIDER_KEY_ENV_FALLBACKS.get(self.provider, ()))
+        for env_var in candidates:
+            key = os.getenv(env_var)
+            if key:
+                return key
+        accepted = " 或 ".join(candidates)
+        raise LLMConfigurationError(f"缺少 {accepted}，请在本机 .env 或系统环境中配置。")

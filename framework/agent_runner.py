@@ -6,6 +6,7 @@ Agent Runner — 多场景路由引擎
 
 import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 from dotenv import load_dotenv
 from rich.console import Console
@@ -33,8 +34,8 @@ UNIVERSAL_METHODOLOGY = """=== 全局方法论约束 ===
 
 
 class AgentRunner:
-    def __init__(self):
-        self.llm        = LLMClient()
+    def __init__(self, require_api: bool = False, llm: LLMClient | None = None):
+        self.llm        = llm or LLMClient(require_api=require_api)
         self.registry   = json.loads(REGISTRY_PATH.read_text(encoding="utf-8"))
         self.summarizer = SessionSummarizer()
         console.print(f"  [dim]LLM: {self.llm}[/dim]")
@@ -96,7 +97,7 @@ class AgentRunner:
 
     # ── 工具加载 ──────────────────────────────────────────────────────────────
 
-    def _load_tools(self, scenario_id: str):
+    def _load_tools(self, scenario_id: str, weekly_runtime=None):
         from v3_agent.tools import TOOLS as base_tools, execute_tool as base_exec
         try:
             from scenarios.tools_extended import EXTENDED_TOOLS, execute_extended_tool
@@ -106,9 +107,13 @@ class AgentRunner:
             from scenarios.tools_real import REAL_TOOLS, execute_real_tool
         except ImportError:
             REAL_TOOLS, execute_real_tool = [], None
+        try:
+            from scenarios.brand_radar_weekly import WEEKLY_TOOLS, execute_weekly_tool
+        except ImportError:
+            WEEKLY_TOOLS, execute_weekly_tool = [], None
 
         required = set(self.registry["scenarios"][scenario_id]["tools"])
-        all_tools = base_tools + EXTENDED_TOOLS + REAL_TOOLS
+        all_tools = base_tools + EXTENDED_TOOLS + REAL_TOOLS + WEEKLY_TOOLS
         tools = [t for t in all_tools if t["function"]["name"] in required]
 
         # 工具来源映射，按名查找 → 调用对应 executor
@@ -116,6 +121,11 @@ class AgentRunner:
         for t in base_tools:     tool_routes[t["function"]["name"]] = ("base", base_exec)
         for t in EXTENDED_TOOLS: tool_routes[t["function"]["name"]] = ("ext",  execute_extended_tool)
         for t in REAL_TOOLS:     tool_routes[t["function"]["name"]] = ("real", execute_real_tool)
+        for t in WEEKLY_TOOLS:
+            executor = None
+            if weekly_runtime is not None and execute_weekly_tool is not None:
+                executor = lambda name, args: execute_weekly_tool(weekly_runtime, name, args)
+            tool_routes[t["function"]["name"]] = ("weekly", executor)
 
         def execute(name, args):
             route = tool_routes.get(name)
@@ -128,6 +138,18 @@ class AgentRunner:
     # ── ReAct 主循环 ──────────────────────────────────────────────────────────
 
     def run(self, scenario_id: str, task_description: str = "", **kwargs) -> str:
+        if scenario_id == "brand_radar_weekly":
+            source_pack = kwargs.pop(
+                "source_pack",
+                Path(__file__).parent.parent / "data/replay/coffee-week-2026-09-07/manifest.json",
+            )
+            output, output_path = self.run_weekly(
+                source_pack=source_pack,
+                task_description=task_description,
+            )
+            console.print(f"  [dim]结果：{output_path}[/dim]")
+            return output.model_dump_json(indent=2)
+
         sc = self.registry["scenarios"][scenario_id]
         task_description = task_description or sc["name"]
 
@@ -216,6 +238,105 @@ class AgentRunner:
 
     def run_auto(self, task: str, **kwargs) -> str:
         return self.run(self._detect_scenario(task), task_description=task, **kwargs)
+
+    # ── Brand Radar weekly 单场景 ────────────────────────────────────────────
+
+    def run_weekly(self, source_pack: str | Path, task_description: str = "",
+                   output_dir: str | Path | None = None):
+        """Run the fixed Replay pipeline and return ``(validated_output, path)``.
+
+        The legacy context/experience writers are intentionally not used here:
+        the validated JSON artifact is the single run record for this scenario.
+        """
+        from scenarios.brand_radar_weekly import (
+            WEEKLY_TOOL_ORDER,
+            WeeklyPipelineError,
+            WeeklyScenarioRuntime,
+        )
+        from .brand_radar_output import get_brand_radar_schema_prompt, parse_brand_radar_output
+
+        started_at = datetime.now(timezone.utc).isoformat()
+        runtime = WeeklyScenarioRuntime(source_pack)
+        tools, execute_tool = self._load_tools("brand_radar_weekly", weekly_runtime=runtime)
+        tool_names = tuple(tool["function"]["name"] for tool in tools)
+        if tool_names != WEEKLY_TOOL_ORDER:
+            raise WeeklyPipelineError(
+                "brand_radar_weekly 工具注册与固定阶段不一致："
+                f"expected={WEEKLY_TOOL_ORDER}, actual={tool_names}"
+            )
+
+        for tool_name in tool_names:
+            encoded = execute_tool(tool_name, {})
+            try:
+                result = json.loads(encoded)
+            except json.JSONDecodeError as exc:
+                raise WeeklyPipelineError(f"工具 {tool_name} 返回了无效 JSON") from exc
+            if isinstance(result, dict) and result.get("error"):
+                raise WeeklyPipelineError(result["error"])
+
+        sc = self.registry["scenarios"]["brand_radar_weekly"]
+        task_description = task_description or runtime.settings["business_question"]
+        if self.llm.is_mock:
+            candidate = runtime.load_expected_candidate()
+            summary = str(candidate.get("executive_summary", ""))
+            candidate["executive_summary"] = (
+                "[MOCK 输出｜仅供程序烟雾测试，不能作为业务验收] " + summary
+            ).strip()
+            raw = json.dumps(candidate, ensure_ascii=False)
+        else:
+            evidence = json.dumps(runtime.prompt_payload(), ensure_ascii=False, indent=2)
+            response = self.llm.chat(
+                messages=[
+                    {
+                        "role": "system",
+                        "content": sc["system_prompt"] + "\n\n" + get_brand_radar_schema_prompt(),
+                    },
+                    {
+                        "role": "user",
+                        "content": (
+                            f"业务任务：{task_description}\n\n"
+                            "以下是程序按固定阶段读取、核对和合并后的全部证据。"
+                            "只能使用这些证据；被标记 expired、superseded 或 failed 的材料不能写入事实卡。"
+                            "unverified 材料只能形成 needs_verification 卡。\n\n"
+                            f"{evidence}"
+                        ),
+                    },
+                ],
+                temperature=0.1,
+                max_tokens=7000,
+                response_format={"type": "json_object"},
+            )
+            raw = response.choices[0].message.content or ""
+
+        completed_at = datetime.now(timezone.utc).isoformat()
+        validator_payload = runtime.validator_payload()
+        validated = parse_brand_radar_output(
+            raw,
+            **validator_payload,
+            run_info={
+                "mode": "mock" if self.llm.is_mock else "real",
+                "provider": self.llm.provider,
+                "model": self.llm.model,
+                "source_pack": runtime.display_path,
+                "stages_completed": [
+                    *WEEKLY_TOOL_ORDER,
+                    "generate_weekly_result",
+                    "awaiting_human_review",
+                ],
+                "started_at": started_at,
+                "completed_at": completed_at,
+            },
+        )
+
+        destination = Path(output_dir) if output_dir is not None else Path(__file__).parent.parent / "outputs"
+        destination.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+        mode = "mock" if self.llm.is_mock else "real"
+        output_path = destination / f"brand_radar_weekly-{mode}-{stamp}.json"
+        temporary = output_path.with_suffix(".json.tmp")
+        temporary.write_text(validated.model_dump_json(indent=2), encoding="utf-8")
+        temporary.replace(output_path)
+        return validated, output_path
 
     # ── 结构化输出解析 ────────────────────────────────────────────────────────
 
