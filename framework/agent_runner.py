@@ -47,21 +47,23 @@ class AgentRunner:
         t.add_column("名称", width=16)
         t.add_column("适用情况", width=38)
         t.add_column("预计耗时", width=8)
-        t.add_column("周节省", width=8)
+        t.add_column("配置估算*", width=10)
         for sid, sc in self.registry["scenarios"].items():
             t.add_row(sid, sc["name"], sc["description"][:36]+"...",
                       f"~{sc['estimated_duration_min']}min",
                       f"~{sc['roi_metrics']['time_saved_hours_per_week']}h")
         console.print(t)
+        console.print("[dim]* 来自场景配置的规划假设，尚未经过人工基线与真实使用验证。[/dim]")
 
     def show_roi_summary(self):
         total = sum(sc["roi_metrics"]["time_saved_hours_per_week"]
                     for sc in self.registry["scenarios"].values())
         console.print(Panel(
-            f"[bold]4 个场景全部启用，预计每周节省约 {total}h 人工工时[/bold]\n\n" +
-            "\n".join(f"• {sc['name']}：省 {sc['roi_metrics']['time_saved_hours_per_week']}h/周"
+            "[bold]以下为场景配置中的未验证工时假设，不是实测提效或 ROI。[/bold]\n\n" +
+            f"配置合计：~{total}h/周（待建立人工基线）\n" +
+            "\n".join(f"• {sc['name']}：假设 ~{sc['roi_metrics']['time_saved_hours_per_week']}h/周"
                       for sc in self.registry["scenarios"].values()),
-            title="💡 ROI 汇总", border_style="green",
+            title="规划估算（未验证）", border_style="yellow",
         ))
 
     # ── 自动路由 ──────────────────────────────────────────────────────────────
