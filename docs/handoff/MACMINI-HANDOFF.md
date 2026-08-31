@@ -10,6 +10,40 @@
 
 第一版目标只做一件事：使用真实模型 API Key 读取咖啡品类 Replay / 人工补充材料，输出下周企划会需要的情报流、30 天日历、重点关键词和 3 条 Brief，并停在人工复核前。
 
+## 交付定位与本机重建
+
+- 私有远端：`https://github.com/Kyoyen/brand-radar-agent.git`
+- 目标分支：`docs/lean-demo-cleanup-20260831`
+- 起始提交：`08704a00e2e3105934b4345154babbd91ff67a4a`
+- Day 1–2 可运行骨架提交：`dfcffcf499f9d89a5f87a125c96254bebf24d505`
+
+新机器不要复制 `.venv` 或 Key。当前 weekly 只需要核心依赖；默认源卡住时可切清华源，不必为了旧实时工具先硬装 `lxml`：
+
+```bash
+python3 -m venv .venv
+$HOME/.codex/bin/longrun --label "Brand Radar weekly core dependencies" \
+  --timeout 120 --stall-timeout 30 --max-retries 0 -- \
+  .venv/bin/python -m pip install \
+  -i https://pypi.tuna.tsinghua.edu.cn/simple \
+  "openai>=1.30.0" "httpx>=0.27.0" "pydantic>=2.0.0" \
+  "python-dotenv>=1.0.0" "rich>=13.0.0"
+cp .env.example .env
+```
+
+在本机编辑 `.env`，只填 Provider、模型和 Key；不要把 Key 放进命令参数或 `longrun` 日志。然后验证：
+
+```bash
+$HOME/.codex/bin/longrun --label "Brand Radar regression" \
+  --timeout 120 --stall-timeout 30 --max-retries 0 -- \
+  .venv/bin/python -m unittest discover -s tests -p 'test_*.py'
+
+$HOME/.codex/bin/longrun --label "Brand Radar real weekly" \
+  --timeout 120 --stall-timeout 30 --max-retries 0 -- \
+  .venv/bin/python run.py --weekly \
+  --source-pack data/replay/coffee-week-2026-09-07/manifest.json \
+  --require-api
+```
+
 ## 开始前先读
 
 按顺序阅读：
