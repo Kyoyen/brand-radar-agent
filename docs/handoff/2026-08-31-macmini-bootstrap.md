@@ -1,8 +1,11 @@
 # Brand Radar｜Mac Mini 执行 Handoff
 
-更新日期：2026-08-31  
-目标设备：`MacMini-Codex.local`  
-目标路径：`/Users/kyoyen/Developer/brand-radar-agent`  
+更新日期：2026-08-31
+
+目标设备：`MacMini-Codex.local`
+
+目标路径：`/Users/kyoyen/Developer/brand-radar-agent`
+
 仓库：`https://github.com/Kyoyen/brand-radar-agent`
 
 ## 接手目标

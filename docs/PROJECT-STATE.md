@@ -1,7 +1,8 @@
 # Brand Radar｜当前项目状态
 
-更新日期：2026-08-31  
-状态：产品方向已确认；GitHub 文档发布与 Mac Mini handoff 准备中
+更新日期：2026-08-31
+
+状态：产品方向已确认；GitHub 发布基线与 Mac Mini handoff 已就绪
 
 ## 当前基线
 

@@ -1,6 +1,7 @@
 # Brand Radar Product Roadmap
 
-更新日期：2026-08-31  
+更新日期：2026-08-31
+
 状态：产品迭代计划
 
 ## 1. Roadmap Boundary
