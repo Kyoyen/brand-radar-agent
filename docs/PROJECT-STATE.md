@@ -10,7 +10,7 @@
 - 发布前云端基线：`1e26929ee874336df31321b6f63d2af0303c3263`（V4.2）
 - 当前工作分支：`docs/brand-radar-mvp-handoff-20260831`
 - 本轮目标：发布产品、执行、作品集和 Mac Mini handoff 文档；不实施 Dashboard。
-- 本轮发布 commit：`BASELINE_COMMIT_PENDING`
+- 代码与规划基线 commit：`7294772d5b5402acebd1c0e7ffc23ac949c5c5c5`
 
 ## 已核实的代码能力
 

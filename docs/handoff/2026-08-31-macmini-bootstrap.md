@@ -11,7 +11,7 @@
 
 ## 仓库基线
 
-- 代码与规划基线 commit：`BASELINE_COMMIT_PENDING`
+- 代码与规划基线 commit：`7294772d5b5402acebd1c0e7ffc23ac949c5c5c5`
 - 该 commit 应包含 PRD、Roadmap、Agent 执行目标、作品集证据契约、项目状态和本 handoff。
 - 后续只含 handoff 指针更新的 commit 可以高于此基线。
 - 克隆后先核对 commit；不一致时停止，不猜测哪个目录更新。
