@@ -345,15 +345,15 @@
 <!-- PAIN SECTION -->
 <section id="pain" class="reveal">
   <div class="section-tag">核心痛点</div>
-  <h2>营销人每天在做的事，80% 是信息搬运</h2>
-  <p class="section-sub">打开平台搜→截图→换平台搜→粘贴整理→发给团队。一套下来3-4小时，做完就过时，下次还要重来。</p>
+  <h2>营销人每天面对大量分散的信息整理工作</h2>
+  <p class="section-sub">跨平台搜索、截图、整理和转述容易重复，具体耗时与效果仍需在真实使用中建立基线。</p>
 
   <div class="pain-strip">
     <div class="side before">
       <div class="label">以前的做法</div>
       <div class="content">
         手动打开小红书搜竞品 → 截图 → 换抖音再搜 → 整理进 Word → 写成邮件发给团队。
-        一套流程 3-4 小时。格式每次不一样，发完就过时，经验无法传承。
+        流程重复且格式容易漂移，具体人工耗时尚未建立可复核基线。
       </div>
     </div>
     <div class="arrow">→</div>
@@ -361,7 +361,7 @@
       <div class="label">现在的做法</div>
       <div class="content">
         <code>python run.py "分析麦当劳今天在小红书发了什么"</code><br><br>
-        约 2 分钟。结果直接推送飞书，下次遇到类似任务还会自动参考上次的经验。
+        当前页面演示的是 Agent 结构与 Mock 流程；外部发送和真实效果尚未验收。
       </div>
     </div>
   </div>
@@ -387,26 +387,26 @@
     <div class="scenario-card reveal">
       <div class="sc-icon">📡</div>
       <div class="sc-title">竞品社媒监控</div>
-      <div class="sc-desc">自动搜索竞品在小红书、抖音的最新动态，分析内容策略，生成威胁等级评估并推送飞书。</div>
-      <span class="sc-saving">⏱ 3h → 2min</span>
+      <div class="sc-desc">以 Mock / 可配置来源演示竞品信息整理、内容策略分析和飞书卡片结构；真实平台接入与发送尚未验收。</div>
+      <span class="sc-saving">演示场景 · 效率待验证</span>
     </div>
     <div class="scenario-card reveal">
       <div class="sc-icon">✍️</div>
       <div class="sc-title">内容选题策划</div>
       <div class="sc-desc">结合平台热点榜单与品牌定位，自动生成可执行的内容方向、格式建议和钩子文案。</div>
-      <span class="sc-saving">⏱ 1h → 3min</span>
+      <span class="sc-saving">演示场景 · 效率待验证</span>
     </div>
     <div class="scenario-card reveal">
       <div class="sc-icon">📊</div>
       <div class="sc-title">Campaign 复盘</div>
       <div class="sc-desc">整合多平台投放数据，自动归纳 KPI 完成情况、亮点、薄弱环节和下次改进建议。</div>
-      <span class="sc-saving">⏱ 2h → 5min</span>
+      <span class="sc-saving">演示场景 · 效率待验证</span>
     </div>
     <div class="scenario-card reveal">
       <div class="sc-icon">🔥</div>
       <div class="sc-title">热点预警</div>
       <div class="sc-desc">定期监测各平台热点榜单，识别与品牌相关的机会窗口，第一时间推送给内容团队。</div>
-      <span class="sc-saving">⏱ 持续人工 → 零值守</span>
+      <span class="sc-saving">演示场景 · 自动运行未验收</span>
     </div>
   </div>
 </section>
@@ -504,7 +504,7 @@
       <div class="tl-dot"><div class="tl-dot-inner"></div></div>
       <div class="tl-version">V3 · v3-agent 分支</div>
       <div class="tl-title">工具调用 + ReAct 循环</div>
-      <div class="tl-desc">接入 OpenAI Function Calling，Agent 自主决策调用哪些工具、调用顺序，结果推送飞书卡片。留下的问题：场景单一，扩展需要改代码，上下文没有记忆。</div>
+      <div class="tl-desc">接入 OpenAI Function Calling，Agent 自主决策工具与调用顺序，并生成飞书卡片结构。留下的问题：场景单一，扩展需要改代码，上下文没有记忆。</div>
       <div class="tl-tags"><span class="tl-tag">Function Calling</span><span class="tl-tag">ReAct</span><span class="tl-tag">飞书推送</span></div>
     </div>
 
@@ -512,8 +512,8 @@
       <div class="tl-dot"><div class="tl-dot-inner"></div></div>
       <div class="tl-version">V4 · main 分支（当前）</div>
       <div class="tl-title">通用框架</div>
-      <div class="tl-desc">多场景路由、LLM 多平台抽象、三层记忆系统、5分钟录入新场景。从「一个工具」变为「可扩展的 Agent 操作系统」。</div>
-      <div class="tl-tags"><span class="tl-tag">多场景路由</span><span class="tl-tag">LLM 抽象层</span><span class="tl-tag">三层记忆</span><span class="tl-tag">经验归档</span><span class="tl-tag">5min录入</span></div>
+      <div class="tl-desc">多场景路由、LLM 多平台抽象、运行记录与经验归档原型。新场景录入效率尚未建立可复核基线。</div>
+      <div class="tl-tags"><span class="tl-tag">多场景路由</span><span class="tl-tag">LLM 抽象层</span><span class="tl-tag">运行记录</span><span class="tl-tag">经验归档</span><span class="tl-tag">场景录入原型</span></div>
     </div>
   </div>
 </section>
@@ -574,7 +574,7 @@
         <div><span class="t-comment"># 其他命令</span></div>
         <div><span class="t-prompt">$</span> <span class="t-cmd">python run.py --list</span>      <span class="t-comment"># 查看所有场景</span></div>
         <div><span class="t-prompt">$</span> <span class="t-cmd">python run.py --roi</span>       <span class="t-comment"># 查看 ROI 汇总</span></div>
-        <div><span class="t-prompt">$</span> <span class="t-cmd">python run.py --intake</span>    <span class="t-comment"># 5分钟录入新场景</span></div>
+        <div><span class="t-prompt">$</span> <span class="t-cmd">python run.py --intake</span>    <span class="t-comment"># 录入新场景（耗时待验证）</span></div>
         <div><span class="t-prompt">$</span> <span class="t-cmd">python run.py --experience</span> <span class="t-comment"># 查看积累的经验</span></div>
       </div>
     </div>

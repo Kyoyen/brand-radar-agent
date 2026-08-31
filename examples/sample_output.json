@@ -1,4 +1,6 @@
 {
+  "data_mode": "SYNTHETIC_LEGACY",
+  "disclaimer": "结构演示数据，不代表真实品牌、平台热度、互动量或发送状态。",
   "generated_by": "Brand Radar Agent V3",
   "analysis_date": "2025-10-15",
   "our_brand": "肯德基",
@@ -87,7 +89,7 @@
     "total_tool_calls": 8,
     "turns_used": 6,
     "platforms_covered": ["小红书", "抖音"],
-    "feishu_push_status": "sent",
+    "feishu_push_status": "simulated_not_sent",
     "history_saved": true,
     "prompt_version": "v3.2"
   }
