@@ -11,4 +11,5 @@ dist/
 venv/
 .longrun/
 memory/
+outputs/
 *.log

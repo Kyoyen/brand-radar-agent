@@ -2,7 +2,7 @@
 Brand Radar Agent — 统一入口
 ==============================
 用法：
-  python run.py "帮我分析麦当劳今天在小红书发了什么"
+  python run.py "为下周瑞幸咖啡周企划会整理咖啡品类观察"
   python run.py --list
   python run.py --history
   python run.py --experience
@@ -136,8 +136,8 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例：
-  python run.py "分析麦当劳在小红书的最新动态"
-  python run.py "生成关于夏日饮品的内容选题" --brand 某品牌
+  python run.py "为下周瑞幸咖啡周企划会整理咖啡品类观察"
+  python run.py "生成关于夏日饮品的内容选题" --brand 瑞幸咖啡
   python run.py --list
   python run.py --history
   python run.py --experience

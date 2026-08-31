@@ -13,7 +13,7 @@ LLM Client — 大模型接口抽象层
 切换示例（只改 .env）：
   LLM_PROVIDER=deepseek
   LLM_MODEL=deepseek-chat
-  DEEPSEEK_API_KEY=sk-...
+  DEEPSEEK_API_KEY=
 """
 
 import os
