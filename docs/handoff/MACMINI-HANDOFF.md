@@ -16,6 +16,7 @@
 - 目标分支：`docs/lean-demo-cleanup-20260831`
 - 起始提交：`08704a00e2e3105934b4345154babbd91ff67a4a`
 - Day 1–2 可运行骨架提交：`dfcffcf499f9d89a5f87a125c96254bebf24d505`
+- 交付时可见工作树：无 dirty 或 untracked 文件；本机被忽略的 `.env`、`.venv`、`outputs/` 和 `.longrun/` 不属于远端交付，也不会跨机迁移。
 
 新机器不要复制 `.venv` 或 Key。当前 weekly 只需要核心依赖；默认源卡住时可切清华源，不必为了旧实时工具先硬装 `lxml`：
 
