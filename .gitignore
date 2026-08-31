@@ -9,3 +9,6 @@ competitor_history.json
 dist/
 .venv/
 venv/
+.longrun/
+memory/
+*.log
