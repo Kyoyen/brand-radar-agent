@@ -70,10 +70,9 @@ env -u OPENAI_API_KEY -u ANTHROPIC_API_KEY -u DEEPSEEK_API_KEY \
 
 ## 下一步
 
-1. 发布本轮文档与安全修正到 GitHub `main`，记录 commit 并远端回读。
-2. Mac Mini 克隆到稳定路径，恢复依赖并运行安全 smoke。
-3. 在 Codex Environments 登记 Brand Radar 远端项目并确认 `projectKind: remote`。
-4. 新任务先执行 P0：代码架构盘点、瑞幸 Replay 数据和最小 Dashboard 技术决策。
+1. Mac Mini 从 GitHub `main` 克隆到稳定路径，恢复依赖并运行安全 smoke。
+2. 在 Codex Environments 登记 Brand Radar 远端项目并确认 `projectKind: remote`。
+3. 新任务先执行 P0：代码架构盘点、瑞幸 Replay 数据和最小 Dashboard 技术决策。
 
 ## 停止条件
 
