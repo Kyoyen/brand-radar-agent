@@ -6,6 +6,8 @@ Agent Runner — 多场景路由引擎
 
 import json
 import os
+import re
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
@@ -26,6 +28,113 @@ console = Console()
 
 REGISTRY_PATH = Path(__file__).parent / "scenario_registry.json"
 MAX_TURNS_DEFAULT = int(os.getenv("AGENT_MAX_TURNS", 12))
+MARKETING_SKILLS_DIR = Path(__file__).resolve().parents[1] / "skills" / "brand-radar"
+MAX_MARKETING_SKILL_BYTES = 16 * 1024
+MARKETING_SKILL_NAMES = (
+    "signal-triage",
+    "brand-fit",
+    "brief-distillation",
+)
+
+
+@dataclass(frozen=True)
+class _MarketingSkill:
+    """A small, local-only marketing skill used by the weekly Agent loop."""
+
+    name: str
+    description: str
+    content: str
+
+
+def _parse_marketing_skill(skill_path: Path) -> _MarketingSkill:
+    """Read the deliberately small SKILL.md contract without a YAML dependency."""
+    size = skill_path.stat().st_size
+    if size > MAX_MARKETING_SKILL_BYTES:
+        raise ValueError(
+            f"营销技能文件大小超出 {MAX_MARKETING_SKILL_BYTES} bytes 限制：{skill_path}"
+        )
+    text = skill_path.read_text(encoding="utf-8")
+    if not text.startswith("---\n"):
+        raise ValueError(f"营销技能缺少 YAML front matter：{skill_path}")
+    closing_marker = text.find("\n---\n", 4)
+    if closing_marker == -1:
+        raise ValueError(f"营销技能 front matter 未闭合：{skill_path}")
+
+    metadata: dict[str, str] = {}
+    for line in text[4:closing_marker].splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        matched = re.fullmatch(r"([A-Za-z][A-Za-z0-9_-]*):[ \t]*(.*)", line)
+        if not matched:
+            raise ValueError(f"营销技能 front matter 格式无效：{skill_path}")
+        key, value = matched.groups()
+        if key in metadata:
+            raise ValueError(f"营销技能重复 front matter 字段 {key}：{skill_path}")
+        metadata[key] = value.strip().strip('"\'')
+
+    name = metadata.get("name", "")
+    description = metadata.get("description", "")
+    if not name:
+        raise ValueError(f"营销技能 front matter 缺少非空 name：{skill_path}")
+    if not description:
+        raise ValueError(f"营销技能 front matter 缺少非空 description：{skill_path}")
+    content = text[closing_marker + len("\n---\n"):].strip()
+    if not content:
+        raise ValueError(f"营销技能正文不能为空：{skill_path}")
+    return _MarketingSkill(name=name, description=description, content=content)
+
+
+def _load_marketing_skills(
+    skills_dir: str | Path = MARKETING_SKILLS_DIR,
+) -> tuple[_MarketingSkill, ...]:
+    """Load only one-level Brand Radar skills and fail closed on malformed input."""
+    root = Path(skills_dir)
+    if not root.is_dir():
+        raise ValueError(f"营销技能目录不存在：{root}")
+    skill_paths = sorted(root.glob("*/SKILL.md"))
+    if not skill_paths:
+        raise ValueError(f"营销技能目录为空：{root}")
+    skills = tuple(_parse_marketing_skill(path) for path in skill_paths)
+    names = [skill.name for skill in skills]
+    duplicates = sorted({name for name in names if names.count(name) > 1})
+    if duplicates:
+        raise ValueError(f"营销技能存在重复技能 name：{', '.join(duplicates)}")
+    return skills
+
+
+def _marketing_skills_by_name() -> dict[str, _MarketingSkill]:
+    skills = _load_marketing_skills()
+    by_name = {skill.name: skill for skill in skills}
+    actual_names = set(by_name)
+    expected_names = set(MARKETING_SKILL_NAMES)
+    if actual_names != expected_names:
+        missing = sorted(expected_names - actual_names)
+        unexpected = sorted(actual_names - expected_names)
+        details = []
+        if missing:
+            details.append(f"缺少：{', '.join(missing)}")
+        if unexpected:
+            details.append(f"不支持：{', '.join(unexpected)}")
+        raise ValueError("营销技能目录名称不符合约定（" + "；".join(details) + "）")
+    return by_name
+
+
+def get_marketing_skill_catalog() -> list[dict[str, str]]:
+    """Return the first-turn directory without leaking any skill body text."""
+    by_name = _marketing_skills_by_name()
+    return [
+        {"name": name, "description": by_name[name].description}
+        for name in MARKETING_SKILL_NAMES
+    ]
+
+
+def get_marketing_skill_content(name: str) -> str:
+    """Return full instructions only after a valid catalog name has been selected."""
+    by_name = _marketing_skills_by_name()
+    skill = by_name.get(name)
+    if skill is None:
+        raise ValueError(f"未知营销技能：{name}")
+    return skill.content
 
 class _StrictResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")

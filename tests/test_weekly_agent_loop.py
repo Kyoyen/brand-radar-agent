@@ -7,7 +7,12 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from framework.agent_runner import AgentRunner
+from framework.agent_runner import (
+    AgentRunner,
+    _load_marketing_skills,
+    get_marketing_skill_catalog,
+    get_marketing_skill_content,
+)
 from framework.brand_radar_output import BrandRadarValidationError
 from framework.llm_client import LLMRequestError
 from scenarios.brand_radar_weekly import WeeklyPipelineError
@@ -103,6 +108,64 @@ def _default_two_action_plan() -> dict:
 
 
 class WeeklyAgentLoopTests(unittest.TestCase):
+    def test_marketing_skill_catalog_exposes_only_names_and_descriptions(self) -> None:
+        catalog = get_marketing_skill_catalog()
+
+        self.assertEqual(
+            ["signal-triage", "brand-fit", "brief-distillation"],
+            [item["name"] for item in catalog],
+        )
+        self.assertTrue(all(set(item) == {"name", "description"} for item in catalog))
+        serialized_catalog = json.dumps(catalog, ensure_ascii=False)
+        self.assertNotIn("只回答一个问题", serialized_catalog)
+        self.assertNotIn("逐项对照其中的", serialized_catalog)
+        self.assertNotIn("每条 Brief 必须引用", serialized_catalog)
+
+    def test_selected_marketing_skill_returns_full_body_only_for_known_name(self) -> None:
+        content = get_marketing_skill_content("brand-fit")
+
+        self.assertIn("BRAND.md", content)
+        self.assertIn("不把“热点”自动等同于“机会”", content)
+        with self.assertRaisesRegex(ValueError, "未知营销技能"):
+            get_marketing_skill_content("unknown-skill")
+
+    def test_marketing_skill_loader_fails_closed_for_invalid_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            skill_dir = root / "one"
+            skill_dir.mkdir()
+            (skill_dir / "SKILL.md").write_text(
+                "---\nname: duplicate\nname: duplicate-again\ndescription: test\n---\nbody",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "重复 front matter 字段"):
+                _load_marketing_skills(root)
+
+            (skill_dir / "SKILL.md").write_text("# no front matter", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "front matter"):
+                _load_marketing_skills(root)
+
+            (skill_dir / "SKILL.md").write_text(
+                "---\nname: no-description\n---\nbody", encoding="utf-8"
+            )
+            with self.assertRaisesRegex(ValueError, "description"):
+                _load_marketing_skills(root)
+
+            second_dir = root / "two"
+            second_dir.mkdir()
+            (skill_dir / "SKILL.md").write_text(
+                "---\nname: same\ndescription: first\n---\nbody", encoding="utf-8"
+            )
+            (second_dir / "SKILL.md").write_text(
+                "---\nname: same\ndescription: second\n---\nbody", encoding="utf-8"
+            )
+            with self.assertRaisesRegex(ValueError, "重复技能 name"):
+                _load_marketing_skills(root)
+
+            (second_dir / "SKILL.md").write_bytes(b"x" * 16_385)
+            with self.assertRaisesRegex(ValueError, "大小"):
+                _load_marketing_skills(root)
+
     def test_real_weekly_executes_only_selected_actions_and_persists_feedback(self) -> None:
         llm = ScriptedRealLLM(
             _default_two_action_plan(),
