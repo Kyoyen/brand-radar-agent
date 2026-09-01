@@ -4,7 +4,7 @@
 
 ## 交接结论
 
-本仓库已经形成可运行的品牌驱动单 Agent 演示骨架。企划人员可以使用通用 `BRAND.md`，也可以通过六个可跳过的问题形成一份本机定制档案；Agent 随后逐轮选择要查的信号和所需营销能力，把品牌起点、反馈过程、企划结果一起写入 JSON 与同源 HTML 周会稿，最后停在人工复核前。
+本仓库已经形成可运行的品牌驱动单 Agent 演示骨架。首次使用可以补充品牌情况，也可以直接使用通用 `BRAND.md`；Agent 随后逐轮选择要查的信号和所需营销能力，把品牌起点、反馈过程、企划结果一起写入 JSON 与同源 HTML 周会稿，最后停在人工复核前。
 
 这可以称为品牌驱动的可运行单 Agent 演示骨架，但不能称为完整成熟或自治营销产品。当前入口仍是终端建档向导与 CLI，不是 GUI，也不是 Dify；亮点是品牌取舍进入每轮判断、按需选择营销能力、读取反馈后继续或停止，以及最后交给人确认。
 
@@ -12,9 +12,10 @@
 
 ## 交付定位与本机重建
 
-- 私有远端：`https://github.com/Kyoyen/brand-radar-agent.git`
-- 目标分支：`docs/lean-demo-cleanup-20260831`
-- 功能基线：`098051fc95f422506c2d99ab6566c98c13643f8f`；文档同步提交以当前分支 `HEAD` 为准。
+- 公开远端：`https://github.com/Kyoyen/brand-radar-agent.git`
+- 公开稳定分支：`main`
+- 本轮开发分支：`docs/lean-demo-cleanup-20260831`；通过普通快进同步到 `main`，不得强推。
+- 功能与文档基线以远端 `main` 的最新提交为准。
 - `.env`、`.venv`、`memory/brand/BRAND.md`、`outputs/` 和 `.longrun/` 不属于远端交付，也不会跨机迁移。新机器使用仓库通用 `BRAND.md` 起步，若需要定制档案则重新完成六问。
 
 新机器不要复制 `.venv` 或 Key。当前 weekly 只需要核心依赖；默认源卡住时可切清华源，不必为了旧实时工具先硬装 `lxml`：
@@ -62,11 +63,11 @@ $HOME/.codex/bin/longrun --label "Brand Radar real weekly" \
 
 ## 已完成与当前状态
 
-- README 已改成业务入口，说明 V1 必须真实 API Key 跑完整 Agent 流程。
+- README 已改成公开产品主页，使用真实周会稿截图，说明当前能力、快速开始、数据边界和企划无限画布方向。
 - PRD 已改成营销企划业务流程语言，包含材料、判断、交付和验收。
 - 新增 `docs/business/NEXT-WEEK-WORKFLOW.md`，用 `fusion` 从 Accio / RealReplicaBench 原始任务提炼可迁移工作方法，并转译成 Brand Radar 自有流程。
 - 新增 `docs/product/AGENT-BUILD.md`，保留“怎么打造 Agent”的工程说明。
-- Roadmap 和 Project State 已改成 Mac Mini 可以直接接续的五天计划与缺口清单。
+- Roadmap 和 Project State 已改成可以直接接续的产品阶段与缺口清单。
 - `.env.example` 已明确 Mock 只用于烟雾测试；`.gitignore` 已忽略 `.env`、`outputs/`、`memory/` 和本地日志。
 - 已准备咖啡 Replay 包及人工期望结果，包含重复、版本替换、过期、待核和风险节点。
 - 已实现 `brand_radar_weekly`、专用证据链校验和 `--weekly / --source-pack / --require-api`。
@@ -78,7 +79,7 @@ $HOME/.codex/bin/longrun --label "Brand Radar real weekly" \
 - 显式 Mock 冒烟清楚标记为程序测试，产物为 `outputs/brand_radar_weekly-mock-20260901-115812-076795.{json,html}`。
 - 错误 Key 已验证：约 0.9 秒退出码 3，明确失败，产物总数保持 28，无新增 JSON / HTML / tmp，无 Mock。
 - 当前全量测试数为 100。
-- HTML 结构检查已通过；由于应用内浏览器阻止本地 `file://` 导航，本轮没有完成视觉打开检查，不能描述为已视觉确认。
+- HTML 结构检查已通过；真实周会稿已使用 Microsoft Edge 渲染 1440 × 1100 首屏并完成视觉检查，公开截图为 `docs/assets/brand-radar-weekly-demo.png`。完整长页和窄窗口仍需后续检查。
 - 17:50 左右程序合成 `adjustment_reasons` 的文件不得作为真实 Agent 证据或 Dashboard 输入。
 - 上述 `outputs/` 文件均为本机忽略证据，不随 Git 交付；新机器必须使用目标命令重新生成。
 
@@ -94,7 +95,7 @@ $HOME/.codex/bin/longrun --label "Brand Radar real weekly" \
 
 ## Mac Mini 下一项任务
 
-下一项最小产品工作是把现有六问状态机接到轻量 GUI / chat，再用一份真实定制品牌档案复跑默认观察包，验证品牌取舍会合理改变调查路径、优先级和 Brief。不要先做复杂 Dashboard，不要为了形式迁移 Dify，也不要先做旧目录迁移。
+GitHub `main` 与主页刷新后，下一项最小产品工作是补齐任务历史、人的采用 / 退回记录和图文 / 视频预览内容结构，再用真实定制品牌档案复跑默认观察包。主链稳定后再开发左侧导航 + 右侧企划无限画布；六问只是可跳过的首次使用弹窗。
 
 ## 目标命令
 
