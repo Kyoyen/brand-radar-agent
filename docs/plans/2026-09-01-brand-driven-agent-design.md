@@ -101,4 +101,3 @@ JSON 结果升级到 `schema_version=1.2`，增加可回放的逐轮 `decision_l
 3. 一条真实 Key 命令能看到 Agent 逐步选择营销技能和调查动作，生成 JSON 与 HTML。
 4. HTML 明确展示本次使用的是通用还是定制品牌档案，以及 Agent 的调查路径。
 5. 错误 Key 明确失败，没有 Mock、JSON、HTML 或临时文件。
-
