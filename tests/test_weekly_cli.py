@@ -31,13 +31,14 @@ def _environment_without_api_keys() -> dict[str, str]:
     return environment
 
 
-def _run_cli(*arguments: str) -> subprocess.CompletedProcess[str]:
+def _run_cli(*arguments: str, input_text: str | None = None) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, str(RUN_PY), *arguments],
         cwd=ROOT,
         env=_environment_without_api_keys(),
         capture_output=True,
         text=True,
+        input=input_text,
         timeout=20,
         check=False,
     )
@@ -74,9 +75,27 @@ class WeeklyCliTests(unittest.TestCase):
         result = _run_cli("--help")
 
         self.assertEqual(0, result.returncode, msg=result.stdout + result.stderr)
-        for flag in ("--weekly", "--source-pack", "--require-api"):
+        for flag in ("--weekly", "--source-pack", "--require-api", "--brand-setup"):
             with self.subTest(flag=flag):
                 self.assertIn(flag, result.stdout)
+
+    def test_brand_setup_skips_without_api_key_or_a_local_profile(self) -> None:
+        local_profile = ROOT / "memory/brand/BRAND.md"
+        before = local_profile.read_text(encoding="utf-8") if local_profile.exists() else None
+
+        result = _run_cli("--brand-setup", input_text="skip\n")
+
+        self.assertEqual(0, result.returncode, msg=result.stdout + result.stderr)
+        self.assertIn("已跳过", result.stdout)
+        self.assertNotIn("Provider:", result.stdout)
+        after = local_profile.read_text(encoding="utf-8") if local_profile.exists() else None
+        self.assertEqual(before, after)
+
+    def test_brand_setup_is_mutually_exclusive_with_weekly(self) -> None:
+        result = _run_cli("--brand-setup", "--weekly")
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("--brand-setup", result.stderr)
 
     def test_list_remains_compatible(self) -> None:
         result = _run_cli("--list")

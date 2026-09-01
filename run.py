@@ -130,6 +130,46 @@ def cmd_weekly(source_pack: str, require_api: bool, task: str | None = None) -> 
     return 0
 
 
+def cmd_brand_setup() -> int:
+    """Run terminal I/O around the GUI-reusable BrandInterview state machine."""
+    from framework.brand_profile import BrandInterview, LOCAL_BRAND_PATH, save_brand_profile
+
+    print("\n品牌档案建档：可逐题回答；直接输入 skip 或 跳过则继续使用通用档案。")
+    try:
+        start = input("现在跳过建档吗？[skip/跳过/Enter 继续] ").strip()
+    except EOFError:
+        print("\n[取消] 未收到输入，未创建本机品牌档案。")
+        return 1
+    if start.lower() == "skip" or start == "跳过":
+        print("已跳过品牌建档，后续将使用仓库通用 BRAND.md。")
+        return 0
+
+    existing_content = (
+        LOCAL_BRAND_PATH.read_text(encoding="utf-8") if LOCAL_BRAND_PATH.exists() else None
+    )
+    interview = BrandInterview(existing_content=existing_content)
+    try:
+        while not interview.is_complete:
+            question = interview.next_question()
+            reply = input(f"\n{question.prompt}\n> ")
+            interview.answer(reply)
+        confirm = input("\n确认保存本机品牌档案吗？[Y/n] ").strip().lower()
+    except EOFError:
+        print("\n[取消] 建档未完成，未创建或更新本机品牌档案。")
+        return 1
+
+    if confirm not in ("", "y", "yes", "确认"):
+        print("已取消保存，本机品牌档案未变更。")
+        return 0
+    if save_brand_profile(interview):
+        print(f"已原子保存本机品牌档案：{LOCAL_BRAND_PATH}")
+    elif existing_content is None:
+        print("所有问题均已跳过，未创建本机品牌档案；后续将使用仓库通用 BRAND.md。")
+    else:
+        print("本次没有新答案，本机品牌档案保持不变。")
+    return 0
+
+
 def cmd_list():
     from framework import AgentRunner
     AgentRunner().list_scenarios()
@@ -227,6 +267,7 @@ def main():
     parser.add_argument("--intake",     action="store_true", help="录入新业务痛点场景")
     parser.add_argument("--scenario",   default=None,        help="指定场景ID（配合--experience）")
     parser.add_argument("--weekly",      action="store_true", help="运行 Brand Radar 周企划单场景")
+    parser.add_argument("--brand-setup", action="store_true", help="建立或更新本机品牌档案（不调用模型）")
     parser.add_argument(
         "--source-pack",
         default=str(DEFAULT_WEEKLY_SOURCE_PACK.relative_to(ROOT)),
@@ -244,6 +285,20 @@ def main():
         parser.error("--require-api 目前只与 --weekly 一起使用")
     if args.weekly and any((args.list, args.roi, args.history, args.experience, args.intake)):
         parser.error("--weekly 不能与 --list/--roi/--history/--experience/--intake 同时使用")
+    if args.brand_setup and any((
+        args.weekly,
+        args.list,
+        args.roi,
+        args.history,
+        args.experience,
+        args.intake,
+        args.task is not None,
+        args.brand is not None,
+    )):
+        parser.error("--brand-setup 不能与其他运行命令同时使用")
+
+    if args.brand_setup:
+        return cmd_brand_setup()
 
     print("\n🔍 Brand Radar Agent OS")
     print("─" * 40)
