@@ -322,7 +322,12 @@ class BrandRadarReportTests(unittest.TestCase):
         self.assertIn("看到了什么", content)
         self.assertIn("已确认当前通知覆盖观察周", content)
         self.assertIn("接着怎么决定", content)
-        self.assertIn("版本有效，继续判断品牌契合度", content)
+        first_round = content[
+            content.index("第 1 轮") : content.index("第 2 轮")
+        ]
+        self.assertIn("继续调查", first_round)
+        self.assertIn("第一项已确认，继续检查品牌表达空间", first_round)
+        self.assertNotIn("版本有效，继续判断品牌契合度", first_round)
         self.assertIn("第 3 轮", content)
         self.assertIn("停止调查，开始成稿", content)
         self.assertIn("事实与品牌边界都已明确", content)
@@ -417,6 +422,81 @@ class BrandRadarReportTests(unittest.TestCase):
         self.assertNotIn("本轮使用：信号筛选、", content)
         self.assertNotIn("品牌契合", content)
         self.assertNotIn("Brief 转译", content)
+
+    def test_1_2_next_decision_uses_agent_reason_instead_of_tool_hint(self) -> None:
+        result = {
+            "schema_version": "1.2",
+            "observation_settings": {
+                "brand": "瑞幸咖啡",
+                "category": "现制咖啡",
+                "regions": ["全国"],
+                "calendar_window": {},
+            },
+            "run_info": {"mode": "real", "provider": "deepseek", "model": "demo"},
+            "source_catalog": [],
+            "intelligence_cards": [],
+            "calendar": [],
+            "keywords": [],
+            "briefs": [],
+            "investigation_trace": {
+                "goal_snapshot": {"business_question": "这个信号还要继续查吗？"},
+                "plan_steps": [
+                    {"step_id": "step-1", "objective": "确认当前材料是否够用"}
+                ],
+                "selected_actions": [
+                    {
+                        "action_id": "action-1",
+                        "step_id": "step-1",
+                        "reason": "先检查材料。",
+                    }
+                ],
+                "tool_feedback": [
+                    {
+                        "feedback_id": "feedback-1",
+                        "action_id": "action-1",
+                        "outcome": "latest_version_resolved",
+                        "summary": "当前版本和发布日期都已确认。",
+                        "decision_hint": "工具建议继续调查竞品活动。",
+                    }
+                ],
+                "adjustment_reasons": [],
+                "decision_log": [
+                    {
+                        "round": 1,
+                        "decision": "investigate",
+                        "skill_name": "signal-triage",
+                        "reason": "先确认版本。",
+                        "based_on_feedback_ids": [],
+                        "action_id": "action-1",
+                    },
+                    {
+                        "round": 2,
+                        "decision": "generate",
+                        "skill_name": "brief-distillation",
+                        "reason": "Agent 判断证据已经足够，无需再扩大调查。",
+                        "based_on_feedback_ids": ["feedback-1"],
+                        "action_id": None,
+                    },
+                ],
+            },
+            "human_review": {"items": []},
+        }
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            json_path = root / "weekly.json"
+            json_path.write_text("{}", encoding="utf-8")
+            content = render_weekly_report(result, json_path=json_path).read_text(
+                encoding="utf-8"
+            )
+
+        first_round = content[
+            content.index("第 1 轮") : content.index("第 2 轮")
+        ]
+        self.assertIn("当前版本和发布日期都已确认", first_round)
+        self.assertIn("停止调查，开始成稿", first_round)
+        self.assertIn("Agent 判断证据已经足够，无需再扩大调查", first_round)
+        self.assertNotIn("工具建议继续调查竞品活动", first_round)
 
 
 if __name__ == "__main__":

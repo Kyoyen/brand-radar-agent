@@ -220,13 +220,9 @@ def _current_investigation(trace: Mapping[str, Any]) -> str:
     feedback_by_id = {
         item.get("feedback_id"): item for item in trace.get("tool_feedback", [])
     }
-    adjustments = {
-        item.get("action_id"): item
-        for item in trace.get("adjustment_reasons", [])
-    }
     decision_log = trace.get("decision_log", [])
     rows: list[str] = []
-    for row in decision_log:
+    for index, row in enumerate(decision_log):
         skill = SKILL_LABELS.get(row.get("skill_name"), "本轮判断")
         if row.get("decision") == "generate":
             prior_findings = [
@@ -252,8 +248,18 @@ def _current_investigation(trace: Mapping[str, Any]) -> str:
         action = actions.get(row.get("action_id"), {})
         step = steps.get(action.get("step_id"), {})
         item = feedback_by_action.get(action.get("action_id"), {})
-        adjustment = adjustments.get(action.get("action_id"), {})
-        next_decision = item.get("decision_hint") or adjustment.get("reason")
+        next_row = decision_log[index + 1] if index + 1 < len(decision_log) else {}
+        if next_row.get("decision") == "generate":
+            next_decision = (
+                f"<strong>停止调查，开始成稿。</strong> "
+                f"{_text(next_row.get('reason'))}"
+            )
+        elif next_row.get("decision") == "investigate":
+            next_decision = (
+                f"<strong>继续调查。</strong> {_text(next_row.get('reason'))}"
+            )
+        else:
+            next_decision = _text("没有保存下一轮决定。")
         outcome = OUTCOME_LABELS.get(item.get("outcome"), item.get("outcome"))
         rows.append(
             f"""
@@ -263,7 +269,7 @@ def _current_investigation(trace: Mapping[str, Any]) -> str:
                 <dt>先想确认什么</dt><dd><strong>{_text(step.get('objective'))}</strong><br>{_text(row.get('reason'))}</dd>
                 <dt>用了什么能力</dt><dd><strong>{_text(skill)}</strong><br>{_text(action.get('reason'))}</dd>
                 <dt>看到了什么</dt><dd><span class="outcome">{_text(outcome)}</span>{_text(item.get('summary'))}</dd>
-                <dt>接着怎么决定</dt><dd>{_text(next_decision)}</dd>
+                <dt>接着怎么决定</dt><dd>{next_decision}</dd>
               </dl>
             </li>
             """
