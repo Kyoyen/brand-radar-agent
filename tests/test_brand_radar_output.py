@@ -394,7 +394,8 @@ class BrandRadarOutputTests(unittest.TestCase):
         self.assertNotIn("库迪咖啡", result.executive_summary)
         self.assertEqual(
             "本周优先讨论：工作日早餐窗口 "
-            "信息不够，先别拿进方案：竞品联名传闻待核；先补来源再决定。",
+            "信息还不够，先别放进方案：竞品联名传闻；"
+            "先找到能确认它的公开信息再决定。",
             result.executive_summary,
         )
 

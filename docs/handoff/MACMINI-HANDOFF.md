@@ -71,7 +71,7 @@ $HOME/.codex/bin/longrun --label "Brand Radar real weekly" \
 - weekly 入口只注册本地只读工具，结果强制 `external_actions=[]` 与 `awaiting_human_review`。
 - 四个固定证据预处理阶段为 `read_weekly_settings`、`read_weekly_source_pack`、`resolve_weekly_versions`、`merge_weekly_events`。
 - 当前 1.1 调查白名单为 `inspect_local_evidence`、`compare_event_versions`、`compare_competitor_evidence`、`cross_check_conflicting_evidence`，模型一次选择 1–4 个动作。
-- 当前 1.1 默认真实周报主演示成功：`outputs/brand_radar_weekly-real-20260901-095856-333379.json` 与同名 HTML，真实 `deepseek-v4-flash`，30.4 秒，3 个调查动作、首轮生成即通过、7 张情报卡、3 条 Brief，`awaiting_human_review`，`external_actions=[]`。此前 `004131` 只作为旧证据保留。
+- 当前 1.1 默认真实周报主演示成功：`outputs/brand_radar_weekly-real-20260901-100927-543102.json` 与同名 HTML，真实 `deepseek-v4-flash`，27.6 秒，3 个调查动作、首轮生成即通过、7 张情报卡、3 条 Brief，`awaiting_human_review`，`external_actions=[]`。此前 `004131` 只作为旧证据保留。
 - 库迪目标变体成功：`outputs/brand_radar_weekly-real-20260901-001559-688407.json` 与同名 HTML，路径转向库迪缺证与快闪关联，并生成缺证卡供人工复核。
 - 错误 Key 已验证：0.7 秒退出码 3，明确失败，无新增 JSON / HTML / tmp，无 Mock。
 - 当前测试数为 73。
@@ -89,7 +89,7 @@ $HOME/.codex/bin/longrun --label "Brand Radar real weekly" \
 
 ## Mac Mini 下一项任务
 
-下一项最小产品工作是基于 73 项测试和 `095856` 主演示做 postflight 收尾，补充一批更接近真实企划的消费、竞品和内容素材，让 Brief 从“方向雏形”升级到可直接进入创意会的版本；再根据使用反馈决定是否增加交互 Dashboard / chat。不要为了形式迁移 Dify，也不要先做复杂框架或旧目录迁移。
+下一项最小产品工作是基于 73 项测试和 `100927` 主演示做 postflight 收尾，补充一批更接近真实企划的消费、竞品和内容素材，让 Brief 从“方向雏形”升级到可直接进入创意会的版本；再根据使用反馈决定是否增加交互 Dashboard / chat。不要为了形式迁移 Dify，也不要先做复杂框架或旧目录迁移。
 
 ## 目标命令
 

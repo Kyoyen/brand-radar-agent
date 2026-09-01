@@ -112,7 +112,7 @@ class BrandRadarReportTests(unittest.TestCase):
             self.assertIn("三条企划 Brief", content)
             self.assertIn("Agent 为什么查这些", content)
             self.assertIn("https://example.com/source", content)
-            self.assertIn("等待人工复核", content)
+            self.assertIn("等你确认后再使用", content)
             self.assertIn("本周优先讨论：教师节节点", content)
             self.assertIn("明确不采用：主动避开的风险", content)
             self.assertLess(
@@ -198,15 +198,18 @@ class BrandRadarReportTests(unittest.TestCase):
                 encoding="utf-8"
             )
 
-        self.assertLess(content.index("上海咖啡快闪待核"), content.index("三条企划 Brief"))
         self.assertLess(
-            content.index("<h3>上海咖啡快闪待核</h3>"),
+            content.index("上海咖啡快闪信息不完整"),
+            content.index("三条企划 Brief"),
+        )
+        self.assertLess(
+            content.index("<h3>上海咖啡快闪信息不完整</h3>"),
             content.index("<h3>本周跟进信号 0</h3>"),
         )
-        self.assertIn("待核", content)
-        self.assertIn("信息不够，先别拿进方案：上海咖啡快闪待核", content)
-        self.assertIn("先补来源再决定", content)
-        self.assertNotIn("本周应主动避开未核验的上海咖啡快闪", content)
+        self.assertNotIn("待核", content)
+        self.assertIn("信息还不够，先别放进方案：上海咖啡快闪", content)
+        self.assertIn("先找到能确认它的公开信息再决定", content)
+        self.assertNotIn("本周应主动避开尚未确认的上海咖啡快闪", content)
 
 
 if __name__ == "__main__":

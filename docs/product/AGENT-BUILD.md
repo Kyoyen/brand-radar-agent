@@ -26,7 +26,7 @@ Agent 合并事件、判断优先级、生成企划结果
 
 当前实现是代码原生的受约束单 Agent 工作流，不是 Dify。Dify 是可选编排平台，不是 Agent 定义；V1 不为改变外观迁移平台，也不增加多 Agent。
 
-Day 1–2 当前可以称为真实 Key 跑通的可运行骨架，但不能称为完整成熟 Agent。历史 `schema_version=1.0` 曾用真实 DeepSeek Key 生成通过专用校验的 JSON；当前 `schema_version=1.1` 已加入有界闭环，并已用 DeepSeek `deepseek-v4-flash` 跑通默认周报和库迪目标变体。主演示默认周报 `095856` 用时 30.4 秒，产出 7 张情报卡、3 条 Brief、3 个调查动作，首轮生成即通过；库迪变体的调查路径转向库迪缺证与快闪关联。17:50 左右程序合成 `adjustment_reasons` 的文件仍不得作为演示证据。
+Day 1–2 当前可以称为真实 Key 跑通的可运行骨架，但不能称为完整成熟 Agent。历史 `schema_version=1.0` 曾用真实 DeepSeek Key 生成通过专用校验的 JSON；当前 `schema_version=1.1` 已加入有界闭环，并已用 DeepSeek `deepseek-v4-flash` 跑通默认周报和库迪目标变体。主演示默认周报 `100927` 用时 27.6 秒，产出 7 张情报卡、3 条 Brief、3 个调查动作，首轮生成即通过；库迪变体的调查路径转向库迪缺证与快闪关联。17:50 左右程序合成 `adjustment_reasons` 的文件仍不得作为演示证据。
 
 ### 当前 Agent 性验收门
 
@@ -101,7 +101,7 @@ Day 1–2 当前可以称为真实 Key 跑通的可运行骨架，但不能称�
 4. weekly 不调用旧外部工具、飞书或历史写入器，只读取观察包、生成结果并停在人工复核前。
 5. `framework/brand_radar_output.py` 已新增情报卡、日历、关键词、Brief、来源、调查轨迹与人工复核的专用校验。
 6. Replay、PUBLIC、MANUAL、Mock 与 real 状态分别保留在观察包和输出元数据中。
-7. 当前 `schema_version=1.1` 真实默认周报主演示成功：`outputs/brand_radar_weekly-real-20260901-095856-333379.json` 与同名 HTML，30.4 秒，7 卡 / 3 Brief，3 个调查动作，首轮生成即通过，`awaiting_human_review`，`external_actions=[]`。此前 `004131` 只作为旧证据保留。
+7. 当前 `schema_version=1.1` 真实默认周报主演示成功：`outputs/brand_radar_weekly-real-20260901-100927-543102.json` 与同名 HTML，27.6 秒，7 卡 / 3 Brief，3 个调查动作，首轮生成即通过，`awaiting_human_review`，`external_actions=[]`。此前 `004131` 只作为旧证据保留。
 8. 库迪目标变体成功：`outputs/brand_radar_weekly-real-20260901-001559-688407.json` 与同名 HTML，调查路径转向库迪缺证与快闪关联，并生成缺证卡供人工复核。
 9. 错误 Key 0.7 秒退出码 3，明确失败，没有新增 JSON / HTML / tmp，没有降级 Mock。
 10. 当前测试数为 73。

@@ -19,7 +19,7 @@ PRIORITY_LABELS = {
     "follow_up_this_week": "本周跟进",
     "continue_observing": "继续观察",
     "actively_avoid": "主动避开",
-    "needs_verification": "待核",
+    "needs_verification": "信息不完整",
 }
 
 PERSPECTIVE_LABELS = {
@@ -30,7 +30,7 @@ PERSPECTIVE_LABELS = {
 }
 
 OUTCOME_LABELS = {
-    "needs_verification": "仍需核实",
+    "needs_verification": "信息还不够",
     "latest_version_resolved": "已确认当前版本",
     "verified_competitor_evidence": "已有可用竞品材料",
     "no_pack_evidence": "观察包没有直接材料",
@@ -54,7 +54,21 @@ def _data(value: Any) -> dict[str, Any]:
 
 
 def _text(value: Any) -> str:
-    return escape(str(value or ""), quote=True)
+    text = str(value or "")
+    for original, replacement in (
+        ("人工待核便签", "来源不完整的人工便签"),
+        ("保持待核", "先留在备选区"),
+        ("待核快闪先补证", "信息不完整的快闪先补齐公开信息"),
+        ("未核验快闪事件", "信息不完整的快闪事件"),
+        ("待核区", "暂存区"),
+        ("待核事件", "信息不完整的事件"),
+        ("待核判断", "暂不采用的判断"),
+        ("补证", "补齐公开信息"),
+        ("未核验", "尚未确认"),
+        ("待核", "信息不完整"),
+    ):
+        text = text.replace(original, replacement)
+    return escape(text, quote=True)
 
 
 def _safe_url(value: Any) -> str | None:
@@ -78,7 +92,7 @@ def _source_links(card: Mapping[str, Any], source_by_id: dict[str, dict]) -> str
         source = source_by_id.get(source_id, {})
         title = _text(source.get("title") or source_id)
         url = _safe_url(source.get("url"))
-        status = "已核" if source.get("verification_status") == "verified" else "待核"
+        status = "已确认" if source.get("verification_status") == "verified" else "来源未确认"
         label = f"{title} · {status}"
         links.append(
             f'<a href="{url}" target="_blank" rel="noreferrer">{label}</a>'
@@ -110,9 +124,9 @@ def _signal_cards(cards: list[dict], source_by_id: dict[str, dict]) -> str:
               <div class="judgement"><strong>为什么值得讨论</strong><br>{_text(card.get('why_it_matters'))}</div>
               <div class="recommendation"><strong>建议</strong><br>{_text(card.get('recommendation'))}</div>
               <details>
-                <summary>来源与仍需确认</summary>
+                <summary>来源和还缺什么</summary>
                 <ul class="sources">{_source_links(card, source_by_id)}</ul>
-                {_list(card.get('pending_questions', []), empty='没有额外待确认问题')}
+                {_list(card.get('pending_questions', []), empty='没有额外需要确认的问题')}
               </details>
             </article>
             """
@@ -232,7 +246,7 @@ def render_weekly_report(
         for item in data.get("keywords", [])
     )
     review_items = "".join(
-        f'<li><span>待确认</span>{_text(item.get("question"))}</li>'
+        f'<li><span>请你确认</span>{_text(item.get("question"))}</li>'
         for item in data.get("human_review", {}).get("items", [])
     )
     mode = "真实模型" if run_info.get("mode") == "real" else "Mock 烟雾测试"
@@ -308,7 +322,7 @@ def render_weekly_report(
   <section><h2>交给你确认</h2><ul class="review">{review_items}</ul></section>
 
   <footer>
-    <strong>当前状态：等待人工复核。</strong> 本次没有发送飞书、没有发布、没有投放、没有修改预算。<br>
+    <strong>当前状态：等你确认后再使用。</strong> 本次没有发送飞书、没有发布、没有投放、没有修改预算。<br>
     可追溯结果：{_text(json_path.name)} · schema {_text(data.get('schema_version'))}
   </footer>
 </main>

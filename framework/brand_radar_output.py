@@ -53,12 +53,15 @@ def _priority_titles(
     *,
     limit: int = 3,
 ) -> str:
-    titles = [
-        str(_card_value(card, "title") or "").strip()
-        for card in cards
-        if _card_value(card, "priority") == priority
-        and str(_card_value(card, "title") or "").strip()
-    ]
+    titles: list[str] = []
+    for card in cards:
+        if _card_value(card, "priority") != priority:
+            continue
+        title = str(_card_value(card, "title") or "").strip()
+        if priority == "needs_verification":
+            title = re.sub(r"\s*(?:[（(]待核[）)]|待核)\s*$", "", title).strip()
+        if title:
+            titles.append(title)
     visible = titles[:limit]
     if len(titles) > limit:
         visible.append(f"另外 {len(titles) - limit} 项")
@@ -73,8 +76,8 @@ def build_weekly_meeting_summary(cards: Iterable[Any]) -> str:
         ("follow_up_this_week", "本周优先讨论：", ""),
         (
             "needs_verification",
-            "信息不够，先别拿进方案：",
-            "；先补来源再决定。",
+            "信息还不够，先别放进方案：",
+            "；先找到能确认它的公开信息再决定。",
         ),
         ("actively_avoid", "明确不采用：", ""),
         ("continue_observing", "继续观察：", ""),
