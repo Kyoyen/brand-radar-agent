@@ -97,6 +97,18 @@ class WeeklyCliTests(unittest.TestCase):
         self.assertNotEqual(0, result.returncode)
         self.assertIn("--brand-setup", result.stderr)
 
+    def test_brand_setup_rejects_scenario(self) -> None:
+        result = _run_cli("--brand-setup", "--scenario", "brand_radar_weekly")
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("--brand-setup", result.stderr)
+
+    def test_brand_setup_rejects_explicit_source_pack(self) -> None:
+        result = _run_cli("--brand-setup", "--source-pack", str(REPLAY_MANIFEST))
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("--brand-setup", result.stderr)
+
     def test_list_remains_compatible(self) -> None:
         result = _run_cli("--list")
 

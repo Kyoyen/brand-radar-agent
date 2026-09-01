@@ -270,7 +270,7 @@ def main():
     parser.add_argument("--brand-setup", action="store_true", help="建立或更新本机品牌档案（不调用模型）")
     parser.add_argument(
         "--source-pack",
-        default=str(DEFAULT_WEEKLY_SOURCE_PACK.relative_to(ROOT)),
+        default=None,
         help="周企划 Replay manifest 路径",
     )
     parser.add_argument(
@@ -292,6 +292,8 @@ def main():
         args.history,
         args.experience,
         args.intake,
+        args.scenario is not None,
+        args.source_pack is not None,
         args.task is not None,
         args.brand is not None,
     )):
@@ -307,7 +309,8 @@ def main():
         return 2
 
     if args.weekly:
-        return cmd_weekly(args.source_pack, args.require_api, task=args.task)
+        source_pack = args.source_pack or str(DEFAULT_WEEKLY_SOURCE_PACK.relative_to(ROOT))
+        return cmd_weekly(source_pack, args.require_api, task=args.task)
     if args.list:
         cmd_list()
     elif args.roi:

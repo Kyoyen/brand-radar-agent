@@ -22,16 +22,6 @@ SECTION_TITLES = (
     "6. 红线与人工确认",
 )
 
-DEFAULT_ANSWERS = (
-    "让每一杯日常咖啡都更轻松、可得。",
-    "需要一杯现制咖啡提神或转换节奏的城市通勤者，在上班路上、工作间隙和短暂休息时需要品牌。",
-    "以稳定的产品、门店和服务事实兑现日常价值；没有来源的说法保留为待核。",
-    "像懂日常节奏的同事：清楚、克制、有温度；绝不像夸张叫卖或借焦虑施压的人。",
-    "只跟与日常咖啡、明确使用场景和可核材料相关的机会；宁可错过无关热点和竞品噪音。",
-    "不夸大、不制造焦虑、不借敏感事件表达；涉及品牌安全、法律、发布、投放或预算时必须交给人确认。",
-)
-
-
 @dataclass(frozen=True)
 class BrandProfile:
     path: Path
@@ -58,10 +48,17 @@ def _parse_answers(content: str) -> list[str | None]:
     return [sections.get(title) or None for title in SECTION_TITLES]
 
 
-def _answered_questions(content: str) -> int:
+def _load_default_answers(default_path: Path) -> tuple[str, ...]:
+    answers = _parse_answers(default_path.read_text(encoding="utf-8"))
+    if any(answer is None for answer in answers):
+        raise ValueError(f"通用品牌档案缺少六个完整章节：{default_path}")
+    return tuple(answer for answer in answers if answer is not None)
+
+
+def _answered_questions(content: str, default_answers: tuple[str, ...]) -> int:
     return sum(
         answer is not None and answer != default
-        for answer, default in zip(_parse_answers(content), DEFAULT_ANSWERS, strict=True)
+        for answer, default in zip(_parse_answers(content), default_answers, strict=True)
     )
 
 
@@ -72,6 +69,7 @@ def load_brand_profile(
     local_path: Path = LOCAL_BRAND_PATH,
 ) -> BrandProfile:
     """Load an explicit, local, or repository-default profile in that order."""
+    default_answers = _load_default_answers(default_path)
     if explicit_path is not None:
         path = Path(explicit_path).expanduser()
         mode: Literal["default", "custom"] = "custom"
@@ -87,7 +85,7 @@ def load_brand_profile(
         path=path,
         content=content,
         mode=mode,
-        answered_questions=_answered_questions(content),
+        answered_questions=_answered_questions(content, default_answers),
         fingerprint=hashlib.sha256(content.encode("utf-8")).hexdigest(),
     )
 
@@ -95,13 +93,22 @@ def load_brand_profile(
 class BrandInterview:
     """State-only six-question brand interview; callers supply all terminal or GUI I/O."""
 
-    def __init__(self, existing_content: str | None = None) -> None:
+    def __init__(
+        self,
+        existing_content: str | None = None,
+        *,
+        default_path: Path = DEFAULT_BRAND_PATH,
+    ) -> None:
         existing_answers = _parse_answers(existing_content or "")
+        self._default_answers = _load_default_answers(default_path)
         self.questions = tuple(
             BrandQuestion(index=index, title=title, prompt="")
             for index, title in enumerate(SECTION_TITLES)
         )
-        self._answers = [answer or default for answer, default in zip(existing_answers, DEFAULT_ANSWERS, strict=True)]
+        self._answers = [
+            answer or default
+            for answer, default in zip(existing_answers, self._default_answers, strict=True)
+        ]
         self._position = 0
         self._user_answered = [False] * len(self.questions)
 
@@ -173,7 +180,6 @@ __all__ = [
     "BrandInterview",
     "BrandProfile",
     "BrandQuestion",
-    "DEFAULT_ANSWERS",
     "DEFAULT_BRAND_PATH",
     "LOCAL_BRAND_PATH",
     "load_brand_profile",
