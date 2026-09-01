@@ -470,6 +470,7 @@ class BrandRadarOutputTests(unittest.TestCase):
         for field, forged in (
             ("provider", "forged-provider"),
             ("mode", "mock"),
+            ("brand_profile", {"mode": "forged"}),
             ("run_info", {"provider": "forged-provider"}),
             ("source_catalog", []),
             ("schema_version", "999"),

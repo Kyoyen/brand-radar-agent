@@ -331,7 +331,7 @@ class WeeklyInvestigationRuntimeTests(unittest.TestCase):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, serialized)
 
-    def test_four_distinct_actions_return_traceable_business_feedback_then_stop(self) -> None:
+    def test_three_distinct_actions_return_traceable_business_feedback_then_stop(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             runtime = _completed_runtime(Path(temporary))
             method = getattr(runtime, "execute_investigation_action", None)
@@ -349,20 +349,18 @@ class WeeklyInvestigationRuntimeTests(unittest.TestCase):
                     "compare_competitor_evidence",
                     {"competitor": "星巴克中国"},
                 ),
+            ]
+            with self.assertRaisesRegex(weekly.WeeklyPipelineError, "最多.*3"):
                 method(
                     "cross_check_conflicting_evidence",
                     {"event_key": "conflicting-event"},
-                ),
-            ]
-            with self.assertRaisesRegex(weekly.WeeklyPipelineError, "最多.*4"):
-                method("inspect_local_evidence", {"source_id": "source-competitor"})
+                )
 
         self.assertEqual(
             [
                 "verified_evidence",
                 "latest_version_resolved",
                 "mixed_verification",
-                "unresolved_conflict",
             ],
             [item["outcome"] for item in results],
         )
@@ -374,12 +372,7 @@ class WeeklyInvestigationRuntimeTests(unittest.TestCase):
             ["source-competitor", "source-competitor-note"],
             results[2]["source_ids"],
         )
-        self.assertEqual(
-            ["source-conflict-a", "source-conflict-b"],
-            results[3]["source_ids"],
-        )
         self.assertIn("本地 Replay 证据", results[2]["summary"])
-        self.assertIn("本地 Replay 证据", results[3]["summary"])
         for result in results:
             self.assertEqual(
                 {"action", "arguments", "source_ids", "summary", "outcome", "decision_hint"},

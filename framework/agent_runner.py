@@ -129,8 +129,10 @@ def _load_marketing_skills(
     return skills
 
 
-def _marketing_skills_by_name() -> dict[str, _MarketingSkill]:
-    skills = _load_marketing_skills()
+def _marketing_skills_by_name(
+    skills_dir: str | Path = MARKETING_SKILLS_DIR,
+) -> dict[str, _MarketingSkill]:
+    skills = _load_marketing_skills(skills_dir)
     by_name = {skill.name: skill for skill in skills}
     actual_names = set(by_name)
     expected_names = set(MARKETING_SKILL_NAMES)
@@ -146,18 +148,23 @@ def _marketing_skills_by_name() -> dict[str, _MarketingSkill]:
     return by_name
 
 
-def get_marketing_skill_catalog() -> list[dict[str, str]]:
+def get_marketing_skill_catalog(
+    skills_dir: str | Path = MARKETING_SKILLS_DIR,
+) -> list[dict[str, str]]:
     """Return the first-turn directory without leaking any skill body text."""
-    by_name = _marketing_skills_by_name()
+    by_name = _marketing_skills_by_name(skills_dir)
     return [
         {"name": name, "description": by_name[name].description}
         for name in MARKETING_SKILL_NAMES
     ]
 
 
-def get_marketing_skill_content(name: str) -> str:
+def get_marketing_skill_content(
+    name: str,
+    skills_dir: str | Path = MARKETING_SKILLS_DIR,
+) -> str:
     """Return full instructions only after a valid catalog name has been selected."""
-    by_name = _marketing_skills_by_name()
+    by_name = _marketing_skills_by_name(skills_dir)
     skill = by_name.get(name)
     if skill is None:
         raise ValueError(f"未知营销技能：{name}")
@@ -167,51 +174,35 @@ class _StrictResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class _PlanStep(_StrictResponse):
-    step_id: str = Field(min_length=1)
-    objective: str = Field(min_length=1)
+InvestigationAction = Literal[
+    "inspect_local_evidence",
+    "compare_event_versions",
+    "compare_competitor_evidence",
+    "cross_check_conflicting_evidence",
+]
 
 
-class _PlannedAction(_StrictResponse):
-    action_id: str = Field(min_length=1)
-    step_id: str = Field(min_length=1)
-    action_type: Literal[
-        "inspect_local_evidence",
-        "compare_event_versions",
-        "compare_competitor_evidence",
-        "cross_check_conflicting_evidence",
+class _InvestigationDecision(_StrictResponse):
+    decision: Literal["investigate", "generate"]
+    skill_name: Literal[
+        "signal-triage",
+        "brand-fit",
+        "brief-distillation",
     ]
+    objective: str = Field(min_length=1)
     reason: str = Field(min_length=1)
-    arguments: dict[str, str]
-
-
-class _PlanningResponse(_StrictResponse):
-    plan_steps: list[_PlanStep] = Field(min_length=1, max_length=4)
-    actions: list[_PlannedAction] = Field(min_length=1, max_length=4)
+    action_type: InvestigationAction | None = None
+    arguments: dict[str, str] = Field(default_factory=dict)
 
     @model_validator(mode="after")
-    def validate_references(self):
-        step_ids = [item.step_id for item in self.plan_steps]
-        action_ids = [item.action_id for item in self.actions]
-        if len(step_ids) != len(set(step_ids)):
-            raise ValueError("plan_steps.step_id 必须唯一")
-        if len(action_ids) != len(set(action_ids)):
-            raise ValueError("actions.action_id 必须唯一")
-        unknown_steps = sorted({item.step_id for item in self.actions} - set(step_ids))
-        if unknown_steps:
-            raise ValueError(f"actions 引用了未知 step_id：{', '.join(unknown_steps)}")
-        unused_steps = sorted(set(step_ids) - {item.step_id for item in self.actions})
-        if unused_steps:
-            raise ValueError(f"计划步骤没有对应调查动作：{', '.join(unused_steps)}")
-        signatures = [
-            (
-                item.action_type,
-                json.dumps(item.arguments, sort_keys=True, ensure_ascii=False),
-            )
-            for item in self.actions
-        ]
-        if len(signatures) != len(set(signatures)):
-            raise ValueError("调查计划包含重复动作")
+    def validate_decision_shape(self):
+        if self.decision == "investigate":
+            if self.action_type is None:
+                raise ValueError("investigate 决策必须包含一个白名单动作")
+            if not self.arguments:
+                raise ValueError("investigate 决策必须包含动作参数")
+        elif self.action_type is not None or self.arguments:
+            raise ValueError("generate 决策不得包含动作或动作参数")
         return self
 
 
@@ -236,10 +227,25 @@ UNIVERSAL_METHODOLOGY = """=== 全局方法论约束 ===
 
 
 class AgentRunner:
-    def __init__(self, require_api: bool = False, llm: LLMClient | None = None):
+    def __init__(
+        self,
+        require_api: bool = False,
+        llm: LLMClient | None = None,
+        *,
+        brand_file: str | Path | None = None,
+        runtime_agents_file: str | Path | None = None,
+        skills_dir: str | Path = MARKETING_SKILLS_DIR,
+    ):
         self.llm        = llm or LLMClient(require_api=require_api)
         self.registry   = json.loads(REGISTRY_PATH.read_text(encoding="utf-8"))
         self.summarizer = SessionSummarizer()
+        self.brand_file = Path(brand_file).expanduser() if brand_file is not None else None
+        self.runtime_agents_file = (
+            Path(runtime_agents_file).expanduser()
+            if runtime_agents_file is not None
+            else Path(__file__).resolve().parents[1] / "agent" / "AGENTS.md"
+        )
+        self.skills_dir = Path(skills_dir).expanduser()
         console.print(f"  [dim]LLM: {self.llm}[/dim]")
 
     # ── 场景列表 ──────────────────────────────────────────────────────────────
@@ -462,13 +468,13 @@ class AgentRunner:
         return decoded
 
     @classmethod
-    def _parse_investigation_plan(cls, raw: str) -> _PlanningResponse:
+    def _parse_investigation_decision(cls, raw: str) -> _InvestigationDecision:
         try:
-            return _PlanningResponse.model_validate(
-                cls._decode_json_object(raw, "调查计划")
+            return _InvestigationDecision.model_validate(
+                cls._decode_json_object(raw, "调查决策")
             )
         except (ValueError, ValidationError) as exc:
-            raise RuntimeError(f"调查计划无效：{exc}") from exc
+            raise RuntimeError(f"调查决策无效：{exc}") from exc
 
     @staticmethod
     def _validation_error(message: str, issues: list[dict[str, str]]):
@@ -574,53 +580,59 @@ class AgentRunner:
         }
 
     @staticmethod
-    def _execute_investigation_plan(runtime, plan: _PlanningResponse):
+    def _execute_investigation_decision(
+        runtime,
+        decision: _InvestigationDecision,
+        action_index: int,
+    ):
         from scenarios.brand_radar_weekly import WeeklyPipelineError
 
-        selected_actions: list[dict[str, Any]] = []
-        tool_feedback: list[dict[str, Any]] = []
-        for action in plan.actions:
-            result = runtime.execute_investigation_action(
-                action.action_type,
-                action.arguments,
-            )
-            if isinstance(result, str):
-                try:
-                    result = json.loads(result)
-                except json.JSONDecodeError as exc:
-                    raise WeeklyPipelineError(
-                        f"调查动作 {action.action_type} 返回无效 JSON"
-                    ) from exc
-            if not isinstance(result, dict):
+        if decision.action_type is None:
+            raise WeeklyPipelineError("investigate 决策缺少调查动作")
+        result = runtime.execute_investigation_action(
+            decision.action_type,
+            decision.arguments,
+        )
+        if isinstance(result, str):
+            try:
+                result = json.loads(result)
+            except json.JSONDecodeError as exc:
                 raise WeeklyPipelineError(
-                    f"调查动作 {action.action_type} 返回结果无效"
-                )
-            if result.get("error"):
-                raise WeeklyPipelineError(str(result["error"]))
-            source_ids = result.get("source_ids", [])
-            selected_actions.append(
-                {
-                    "action_id": action.action_id,
-                    "step_id": action.step_id,
-                    "action_type": action.action_type,
-                    "reason": action.reason,
-                    "arguments": action.arguments,
-                    "source_ids": source_ids,
-                }
+                    f"调查动作 {decision.action_type} 返回无效 JSON"
+                ) from exc
+        if not isinstance(result, dict):
+            raise WeeklyPipelineError(
+                f"调查动作 {decision.action_type} 返回结果无效"
             )
-            tool_feedback.append(
-                {
-                    "feedback_id": f"feedback-{action.action_id}",
-                    "action_id": action.action_id,
-                    "source_ids": source_ids,
-                    "summary": result.get("summary", "调查动作已完成"),
-                    "outcome": result.get("outcome", "completed"),
-                    "decision_hint": result.get(
-                        "decision_hint", "根据实际来源充分度保守判断"
-                    ),
-                }
-            )
-        return selected_actions, tool_feedback
+        if result.get("error"):
+            raise WeeklyPipelineError(str(result["error"]))
+
+        step_id = f"step-{action_index}"
+        action_id = f"action-{action_index}"
+        source_ids = result.get("source_ids", [])
+        plan_step = {
+            "step_id": step_id,
+            "objective": decision.objective,
+        }
+        selected_action = {
+            "action_id": action_id,
+            "step_id": step_id,
+            "action_type": decision.action_type,
+            "reason": decision.reason,
+            "arguments": decision.arguments,
+            "source_ids": source_ids,
+        }
+        tool_feedback = {
+            "feedback_id": f"feedback-{action_id}",
+            "action_id": action_id,
+            "source_ids": source_ids,
+            "summary": result.get("summary", "调查动作已完成"),
+            "outcome": result.get("outcome", "completed"),
+            "decision_hint": result.get(
+                "decision_hint", "根据实际来源充分度保守判断"
+            ),
+        }
+        return plan_step, selected_action, tool_feedback
 
     def run_weekly(self, source_pack: str | Path, task_description: str = "",
                    output_dir: str | Path | None = None):
@@ -631,10 +643,12 @@ class AgentRunner:
         """
         from scenarios.brand_radar_weekly import (
             INVESTIGATION_TOOLS,
+            MAX_INVESTIGATION_ACTIONS,
             WEEKLY_TOOL_ORDER,
             WeeklyPipelineError,
             WeeklyScenarioRuntime,
         )
+        from .brand_profile import load_brand_profile
         from .brand_radar_output import (
             BrandRadarValidationError,
             get_brand_radar_result_contract,
@@ -665,6 +679,25 @@ class AgentRunner:
         sc = self.registry["scenarios"]["brand_radar_weekly"]
         task_description = task_description or runtime.settings["business_question"]
         goal_snapshot = self._goal_snapshot(runtime.settings, task_description)
+        try:
+            brand_profile = load_brand_profile(self.brand_file)
+            runtime_rules = self.runtime_agents_file.read_text(encoding="utf-8")
+            skill_catalog = get_marketing_skill_catalog(self.skills_dir)
+        except (OSError, UnicodeError, ValueError) as exc:
+            raise WeeklyPipelineError(f"品牌或 Agent 运行上下文无法加载：{exc}") from exc
+
+        repo_root = Path(__file__).resolve().parents[1]
+        try:
+            brand_display_file = brand_profile.path.resolve().relative_to(repo_root).as_posix()
+        except ValueError:
+            brand_display_file = str(brand_profile.path)
+        brand_run_info = {
+            "mode": brand_profile.mode,
+            "file": brand_display_file,
+            "answered_questions": brand_profile.answered_questions,
+            "fingerprint": brand_profile.fingerprint,
+        }
+        selected_skill_bodies: dict[str, str] = {}
         generation_contract = (
             "【唯一允许的生成结构】\n"
             "外层顶级字段只能是 adjustment_reasons 和 result，不能直接输出 result 的六个字段。\n"
@@ -684,35 +717,62 @@ class AgentRunner:
             + get_brand_radar_result_contract()
         )
 
+        plan_steps: list[dict[str, Any]] = []
+        selected_actions: list[dict[str, Any]] = []
+        tool_feedback: list[dict[str, Any]] = []
+        decision_log: list[dict[str, Any]] = []
+        preflight_known_source_ids = {
+            item["source_id"] for item in runtime.validator_payload()["source_catalog"]
+        }
+
         if self.llm.is_mock:
-            mock_source_id = runtime.materials[0]["source_id"]
-            plan = _PlanningResponse.model_validate(
+            mock_decision = _InvestigationDecision.model_validate(
                 {
-                    "plan_steps": [
-                        {
-                            "step_id": "mock-step-1",
-                            "objective": "读取一条本地材料，验证受限调查接缝",
-                        }
-                    ],
-                    "actions": [
-                        {
-                            "action_id": "mock-action-1",
-                            "step_id": "mock-step-1",
-                            "action_type": "inspect_local_evidence",
-                            "reason": "Mock 只验证程序链路，不代表业务判断。",
-                            "arguments": {"source_id": mock_source_id},
-                        }
-                    ],
+                    "decision": "investigate",
+                    "skill_name": "signal-triage",
+                    "objective": "读取一条本地材料，验证受限调查接缝",
+                    "reason": "Mock 只验证程序链路，不代表业务判断。",
+                    "action_type": "inspect_local_evidence",
+                    "arguments": {"source_id": runtime.materials[0]["source_id"]},
                 }
             )
-            selected_actions, tool_feedback = self._execute_investigation_plan(
-                runtime, plan
+            step, action, feedback = self._execute_investigation_decision(
+                runtime, mock_decision, 1
+            )
+            plan_steps.append(step)
+            selected_actions.append(action)
+            tool_feedback.append(feedback)
+            selected_skill_bodies["signal-triage"] = get_marketing_skill_content(
+                "signal-triage", self.skills_dir
+            )
+            selected_skill_bodies["brief-distillation"] = get_marketing_skill_content(
+                "brief-distillation", self.skills_dir
+            )
+            decision_log.extend(
+                [
+                    {
+                        "round": 1,
+                        "decision": "investigate",
+                        "skill_name": "signal-triage",
+                        "reason": mock_decision.reason,
+                        "based_on_feedback_ids": [],
+                        "action_id": "action-1",
+                    },
+                    {
+                        "round": 2,
+                        "decision": "generate",
+                        "skill_name": "brief-distillation",
+                        "reason": "Mock 已读取一次本地反馈，开始生成固定烟雾测试结果。",
+                        "based_on_feedback_ids": ["feedback-action-1"],
+                        "action_id": None,
+                    },
+                ]
             )
             adjustments = [
                 {
                     "adjustment_id": "mock-adjustment-1",
-                    "action_id": "mock-action-1",
-                    "feedback_id": "feedback-mock-action-1",
+                    "action_id": "action-1",
+                    "feedback_id": "feedback-action-1",
                     "reason": "Mock 仅确认本地反馈可进入固定输出，不作为营销判断。",
                 }
             ]
@@ -723,78 +783,159 @@ class AgentRunner:
             ).strip()
             generation_raw = json.dumps(candidate, ensure_ascii=False)
         else:
-            observation = json.dumps(
-                runtime.observation_payload(), ensure_ascii=False, indent=2
-            )
-            plan_schema = json.dumps(
-                _PlanningResponse.model_json_schema(), ensure_ascii=False, indent=2
-            )
-            console.print("  [dim]Agent：形成本次调查计划[/dim]")
-            plan_response = self.llm.chat(
-                messages=[
-                    {
-                        "role": "system",
-                        "content": (
-                            sc["system_prompt"]
-                            + "\n\n你现在只制定本次调查计划，不生成情报卡或 Brief。"
-                            "从给定本地白名单中选择 1 至 4 个必要动作；不要求把所有动作都执行。"
-                            "每个 action.reason 只能描述该动作自己的目标和 arguments，"
-                            "不能声称已经检查了其他竞品；如需分别检查多个竞品，请拆成多个动作。"
-                            "只输出符合 JSON Schema 的对象。\n\n"
-                            + plan_schema
-                        ),
-                    },
-                    {
-                        "role": "user",
-                        "content": (
-                            f"业务任务：{task_description}\n\n"
-                            "请基于 observation_payload 中的已知信号和 open_questions，"
-                            "只选择能改变或确认企划判断的动作。动作及参数契约如下：\n"
-                            f"{json.dumps(INVESTIGATION_TOOLS, ensure_ascii=False, indent=2)}\n\n"
-                            f"observation_payload：\n{observation}"
-                        ),
-                    },
-                ],
-                temperature=0.1,
-                max_tokens=2200,
-                response_format={"type": "json_object"},
-                stream_progress=True,
-            )
-            try:
-                plan = self._parse_investigation_plan(
-                    plan_response.choices[0].message.content or ""
-                )
-            except RuntimeError as exc:
-                raise WeeklyPipelineError(str(exc)) from exc
-            selected_actions, tool_feedback = self._execute_investigation_plan(
-                runtime, plan
-            )
-            preflight_known_source_ids = {
-                item["source_id"] for item in runtime.validator_payload()["source_catalog"]
-            }
-            try:
-                validate_investigation_preflight(
-                    {
-                        "goal_snapshot": goal_snapshot,
-                        "plan_steps": [item.model_dump() for item in plan.plan_steps],
-                        "selected_actions": selected_actions,
-                        "tool_feedback": tool_feedback,
-                    },
-                    known_source_ids=preflight_known_source_ids,
-                )
-            except BrandRadarValidationError as exc:
-                raise WeeklyPipelineError(f"调查计划或工具反馈轨迹无效：{exc}") from exc
-            investigation_context = {
-                "goal_snapshot": goal_snapshot,
-                "plan_steps": [item.model_dump() for item in plan.plan_steps],
-                "selected_actions": selected_actions,
-                "tool_feedback": tool_feedback,
-            }
-            generation_evidence = runtime.generation_payload(investigation_context)
-            evidence = json.dumps(
-                generation_evidence,
+            observation = runtime.observation_payload()
+            decision_schema = json.dumps(
+                _InvestigationDecision.model_json_schema(),
                 ensure_ascii=False,
                 indent=2,
+            )
+            for round_number in range(1, MAX_INVESTIGATION_ACTIONS + 2):
+                prior_feedback_ids = [item["feedback_id"] for item in tool_feedback]
+                remaining_actions = MAX_INVESTIGATION_ACTIONS - len(selected_actions)
+                decision_context = {
+                    "business_task": task_description,
+                    "brand_profile": {
+                        **brand_run_info,
+                        "content": brand_profile.content,
+                    },
+                    "runtime_rules": runtime_rules,
+                    "skill_catalog": skill_catalog,
+                    "selected_skill_bodies": selected_skill_bodies,
+                    "observation": observation,
+                    "selected_actions": selected_actions,
+                    "tool_feedback": tool_feedback,
+                    "remaining_action_count": remaining_actions,
+                }
+                console.print(
+                    f"  [dim]Agent：第 {round_number} 轮调查决策（剩余 {remaining_actions} 动作）[/dim]"
+                )
+                decision_response = self.llm.chat(
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": (
+                                sc["system_prompt"]
+                                + "\n\n你是逐轮决策的单一营销企划 Agent。每轮只能选择一项营销技能，"
+                                "并且只能决定执行一个白名单本地动作或开始生成。"
+                                "至少完成一次调查后才能 generate；最多执行三次调查。"
+                                "第三次反馈后的最终决策必须是 generate。"
+                                "动作 ID、步骤 ID 和反馈 ID 由程序生成，禁止输出这些 ID。"
+                                "只输出符合 JSON Schema 的对象。\n\n"
+                                "【实际生效的 BRAND.md】\n"
+                                + brand_profile.content
+                                + "\n\n【实际生效的 agent/AGENTS.md】\n"
+                                + runtime_rules
+                                + "\n\n【调查决策 JSON Schema】\n"
+                                + decision_schema
+                            ),
+                        },
+                        {
+                            "role": "user",
+                            "content": (
+                                "请基于 observation 中的已知信号与 open_questions、"
+                                "累计 selected_actions 和 tool_feedback 作出本轮唯一决策。"
+                                "调查动作及参数契约如下：\n"
+                                + json.dumps(
+                                    INVESTIGATION_TOOLS,
+                                    ensure_ascii=False,
+                                    indent=2,
+                                )
+                                + "\n\n决策上下文：\n"
+                                + json.dumps(
+                                    decision_context,
+                                    ensure_ascii=False,
+                                    indent=2,
+                                )
+                            ),
+                        },
+                    ],
+                    temperature=0.1,
+                    max_tokens=2200,
+                    response_format={"type": "json_object"},
+                    stream_progress=True,
+                )
+                try:
+                    decision = self._parse_investigation_decision(
+                        decision_response.choices[0].message.content or ""
+                    )
+                except RuntimeError as exc:
+                    raise WeeklyPipelineError(str(exc)) from exc
+
+                selected_skill_bodies[decision.skill_name] = (
+                    get_marketing_skill_content(decision.skill_name, self.skills_dir)
+                )
+                if decision.decision == "generate":
+                    if not selected_actions:
+                        raise WeeklyPipelineError(
+                            "至少完成一次调查并读取反馈后才能 generate"
+                        )
+                    decision_log.append(
+                        {
+                            "round": round_number,
+                            "decision": "generate",
+                            "skill_name": decision.skill_name,
+                            "reason": decision.reason,
+                            "based_on_feedback_ids": prior_feedback_ids,
+                            "action_id": None,
+                        }
+                    )
+                    break
+
+                if len(selected_actions) >= MAX_INVESTIGATION_ACTIONS:
+                    raise WeeklyPipelineError(
+                        "第三次反馈后必须最终决定 generate；不允许第四次调查动作"
+                    )
+                action_index = len(selected_actions) + 1
+                step, action, feedback = self._execute_investigation_decision(
+                    runtime, decision, action_index
+                )
+                plan_steps.append(step)
+                selected_actions.append(action)
+                tool_feedback.append(feedback)
+                decision_log.append(
+                    {
+                        "round": round_number,
+                        "decision": "investigate",
+                        "skill_name": decision.skill_name,
+                        "reason": decision.reason,
+                        "based_on_feedback_ids": prior_feedback_ids,
+                        "action_id": action["action_id"],
+                    }
+                )
+                try:
+                    validate_investigation_preflight(
+                        {
+                            "goal_snapshot": goal_snapshot,
+                            "plan_steps": plan_steps,
+                            "selected_actions": selected_actions,
+                            "tool_feedback": tool_feedback,
+                        },
+                        known_source_ids=preflight_known_source_ids,
+                    )
+                except BrandRadarValidationError as exc:
+                    raise WeeklyPipelineError(
+                        f"调查计划或工具反馈轨迹无效：{exc}"
+                    ) from exc
+            else:
+                raise WeeklyPipelineError("调查决策未能在有界轮次内收敛到 generate")
+
+            investigation_context = {
+                "goal_snapshot": goal_snapshot,
+                "plan_steps": plan_steps,
+                "selected_actions": selected_actions,
+                "tool_feedback": tool_feedback,
+                "decision_log": decision_log,
+            }
+            generation_evidence = runtime.generation_payload(investigation_context)
+            generation_evidence.update(
+                {
+                    "brand_profile": {
+                        **brand_run_info,
+                        "content": brand_profile.content,
+                    },
+                    "runtime_rules": runtime_rules,
+                    "selected_skill_bodies": selected_skill_bodies,
+                }
             )
             console.print(
                 f"  [dim]Agent：已完成 {len(selected_actions)} 项本地调查，开始生成企划[/dim]"
@@ -805,9 +946,20 @@ class AgentRunner:
                         "role": "system",
                         "content": (
                             sc["system_prompt"]
-                            + "\n\n现在根据实际 tool_feedback 生成周企划。"
+                            + "\n\n现在根据全部实际 tool_feedback 生成周企划。"
                             "adjustment_reasons 必须逐一引用实际 action_id 与 feedback_id，"
                             "解释反馈怎样确认、改变或保留待核判断。\n\n"
+                            "【实际生效的 BRAND.md】\n"
+                            + brand_profile.content
+                            + "\n\n【实际生效的 agent/AGENTS.md】\n"
+                            + runtime_rules
+                            + "\n\n【本次已选营销技能正文】\n"
+                            + json.dumps(
+                                selected_skill_bodies,
+                                ensure_ascii=False,
+                                indent=2,
+                            )
+                            + "\n\n"
                             + generation_contract
                         ),
                     },
@@ -815,16 +967,20 @@ class AgentRunner:
                         "role": "user",
                         "content": (
                             f"业务任务：{task_description}\n\n"
-                            "以下是固定材料处理、Agent 所选调查动作以及真实 tool_feedback。"
+                            "以下是固定材料处理、逐轮决策、所选调查动作以及全部真实 tool_feedback。"
                             "只能使用这些证据；expired、superseded 或 failed 材料不能写入事实卡，"
                             "unverified 或 unresolved_conflict 只能形成 needs_verification 卡。"
                             "如果 tool_feedback.outcome 是 no_pack_evidence 或 no_current_pack_evidence，"
-                            "只能把它写成引用该 feedback_id 的缺证卡，"
-                            "不得附会到无关 source_ids 或写成确定竞品动作。"
+                            "只能把它写成引用该 feedback_id 的缺证卡，不得附会到无关 source_ids。"
                             "其中 no_current_pack_evidence 返回的旧 source_ids 只用于追溯，不能进入卡片 source_ids。"
                             "没有收到某竞品的 evidence-gap 反馈时，不得凭空创建该竞品的无来源缺证卡；"
                             "其他已有当前材料的卡必须引用反馈中实际返回的 source_ids。\n\n"
-                            f"{evidence}"
+                            "生成证据：\n"
+                            + json.dumps(
+                                generation_evidence,
+                                ensure_ascii=False,
+                                indent=2,
+                            )
                         ),
                     },
                 ],
@@ -851,7 +1007,7 @@ class AgentRunner:
             validate_investigation_preflight(
                 {
                     "goal_snapshot": goal_snapshot,
-                    "plan_steps": [item.model_dump() for item in plan.plan_steps],
+                    "plan_steps": plan_steps,
                     "selected_actions": selected_actions,
                     "tool_feedback": tool_feedback,
                 },
@@ -863,9 +1019,10 @@ class AgentRunner:
         def build_trace(adjustment_reasons, generation_attempts):
             return {
                 "goal_snapshot": goal_snapshot,
-                "plan_steps": [item.model_dump() for item in plan.plan_steps],
+                "plan_steps": plan_steps,
                 "selected_actions": selected_actions,
                 "tool_feedback": tool_feedback,
+                "decision_log": decision_log,
                 "adjustment_reasons": adjustment_reasons,
                 "generation_attempts": generation_attempts,
             }
@@ -894,7 +1051,7 @@ class AgentRunner:
                 raise WeeklyPipelineError(f"调查轨迹校验失败：{exc}") from exc
             stages = [
                 *WEEKLY_TOOL_ORDER,
-                "plan_weekly_investigation",
+                "decide_weekly_investigation",
                 "execute_weekly_investigation",
                 "generate_weekly_result",
             ]
@@ -910,6 +1067,7 @@ class AgentRunner:
                     "provider": self.llm.provider,
                     "model": self.llm.model,
                     "source_pack": runtime.display_path,
+                    "brand_profile": brand_run_info,
                     "stages_completed": stages,
                     "started_at": started_at,
                     "completed_at": datetime.now(timezone.utc).isoformat(),
@@ -934,6 +1092,17 @@ class AgentRunner:
                             "你只能修正上一份 Brand Radar 周企划 JSON。"
                             "不得重新规划、选择或执行工具；不得新增来源。"
                             "回应全部校验问题，并严格遵守以下同一生成契约。\n\n"
+                            "【实际生效的 BRAND.md】\n"
+                            + brand_profile.content
+                            + "\n\n【实际生效的 agent/AGENTS.md】\n"
+                            + runtime_rules
+                            + "\n\n【本次已选营销技能正文】\n"
+                            + json.dumps(
+                                selected_skill_bodies,
+                                ensure_ascii=False,
+                                indent=2,
+                            )
+                            + "\n\n"
                             + generation_contract
                         ),
                     },

@@ -2,7 +2,8 @@
 
 The scenario is deliberately local and read-only: it reads one manifest and
 the files explicitly listed by that manifest, performs stable version and
-merge bookkeeping, and exposes the resulting evidence to one model call.
+merge bookkeeping, and exposes the resulting evidence to a bounded single-Agent
+decision loop.
 It has no network, publishing, messaging, advertising, or budget tools.
 """
 
@@ -51,7 +52,7 @@ INVESTIGATION_ACTION_NAMES = (
     "compare_competitor_evidence",
     "cross_check_conflicting_evidence",
 )
-MAX_INVESTIGATION_ACTIONS = 4
+MAX_INVESTIGATION_ACTIONS = 3
 
 
 def _investigation_tool(name: str, description: str, argument: str) -> dict[str, Any]:

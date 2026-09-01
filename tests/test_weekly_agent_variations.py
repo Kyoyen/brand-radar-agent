@@ -30,10 +30,19 @@ class ObservationDrivenLLM:
         self.calls.append(kwargs)
         user_content = kwargs["messages"][1]["content"]
         if len(self.calls) == 1:
-            payload = _extract_json_after_marker(user_content, "observation_payload：")
-            response = self._planner(payload)
+            payload = _extract_json_after_marker(user_content, "决策上下文：")
+            response = self._planner(payload["observation"])
         elif len(self.calls) == 2:
-            payload = _extract_json_after_marker(user_content, "tool_feedback。")
+            response = {
+                "decision": "generate",
+                "skill_name": "brief-distillation",
+                "objective": "把本轮反馈转成周企划",
+                "reason": "已完成一次目标驱动调查，可以开始生成。",
+                "action_type": None,
+                "arguments": {},
+            }
+        elif len(self.calls) == 3:
+            payload = _extract_json_after_marker(user_content, "生成证据：")
             result = json.loads(EXPECTED_RESULT.read_text(encoding="utf-8"))
             response = _generation(
                 self._result_mutator(result, payload),
@@ -69,23 +78,14 @@ def _extract_json_after_marker(content: str, marker: str) -> dict:
     raise AssertionError(f"could not find JSON object after marker: {marker}")
 
 
-def _plan(action_type: str, reason: str, arguments: dict[str, str]) -> dict:
+def _investigate(action_type: str, reason: str, arguments: dict[str, str]) -> dict:
     return {
-        "plan_steps": [
-            {
-                "step_id": "step-1",
-                "objective": reason,
-            }
-        ],
-        "actions": [
-            {
-                "action_id": "action-1",
-                "step_id": "step-1",
-                "action_type": action_type,
-                "reason": reason,
-                "arguments": arguments,
-            }
-        ],
+        "decision": "investigate",
+        "skill_name": "signal-triage",
+        "objective": reason,
+        "reason": reason,
+        "action_type": action_type,
+        "arguments": arguments,
     }
 
 
@@ -129,12 +129,12 @@ class WeeklyAgentVariationAcceptanceTests(unittest.TestCase):
         def planner(observation: dict) -> dict:
             keywords = observation["marketing_goal"]["keywords"]
             if "赛事" in keywords:
-                return _plan(
+                return _investigate(
                     "inspect_local_evidence",
                     "赛事关键词出现时先核对上海 MXGP 本地材料是否可用。",
                     {"source_id": "src_shanghai_mxgp_2026"},
                 )
-            return _plan(
+            return _investigate(
                 "compare_competitor_evidence",
                 "社区空间关键词出现时先核对星巴克竞品材料。",
                 {"competitor": "星巴克中国"},
@@ -172,7 +172,7 @@ class WeeklyAgentVariationAcceptanceTests(unittest.TestCase):
         def planner(observation: dict) -> dict:
             gaps = observation["attention_required"]["competitors_without_evidence"]
             competitor = "Tims 天好中国" if "Tims 天好中国" in gaps else "星巴克中国"
-            return _plan(
+            return _investigate(
                 "compare_competitor_evidence",
                 "竞品进入目标但观察包缺少直接材料时先记录证据缺口。",
                 {"competitor": competitor},
@@ -220,12 +220,12 @@ class WeeklyAgentVariationAcceptanceTests(unittest.TestCase):
         def planner(observation: dict) -> dict:
             conflicts = observation["attention_required"]["unresolved_version_groups"]
             if "shanghai-tourism-festival-2026" in conflicts:
-                return _plan(
+                return _investigate(
                     "cross_check_conflicting_evidence",
                     "上海旅游节同级当前材料互相冲突，先交叉核对事件。",
                     {"event_key": "shanghai-tourism-festival-2026"},
                 )
-            return _plan(
+            return _investigate(
                 "compare_event_versions",
                 "上海旅游节存在多版本时先确认当前有效版。",
                 {"version_group": "shanghai-tourism-festival-2026"},

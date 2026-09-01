@@ -271,11 +271,19 @@ class _MergeRecord(_StrictModel):
         return self
 
 
+class _BrandProfileRunInfo(_StrictModel):
+    mode: Literal["default", "custom"]
+    file: NonEmptyString
+    answered_questions: int = Field(ge=0, le=6)
+    fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
 class _RunInfo(_StrictModel):
     mode: Literal["real", "mock"]
     provider: NonEmptyString
     model: NonEmptyString
     source_pack: NonEmptyString
+    brand_profile: _BrandProfileRunInfo | None = None
     stages_completed: list[NonEmptyString]
     started_at: IsoDateTime
     completed_at: IsoDateTime
@@ -337,6 +345,19 @@ class _GenerationAttempt(_StrictModel):
     issues: list[_AttemptIssue] = Field(default_factory=list)
 
 
+class _DecisionLogEntry(_StrictModel):
+    round: int = Field(ge=1)
+    decision: Literal["investigate", "generate"]
+    skill_name: Literal[
+        "signal-triage",
+        "brand-fit",
+        "brief-distillation",
+    ]
+    reason: NonEmptyString
+    based_on_feedback_ids: list[NonEmptyString]
+    action_id: NonEmptyString | None = None
+
+
 class _InvestigationTrace(_StrictModel):
     goal_snapshot: _GoalSnapshot
     plan_steps: list[_PlanStep] = Field(min_length=1)
@@ -344,6 +365,7 @@ class _InvestigationTrace(_StrictModel):
     tool_feedback: list[_ToolFeedback] = Field(min_length=1)
     adjustment_reasons: list[_AdjustmentReason] = Field(min_length=1)
     generation_attempts: list[_GenerationAttempt] = Field(max_length=2)
+    decision_log: list[_DecisionLogEntry] | None = None
 
 
 class _InvestigationPreflight(_StrictModel):
@@ -466,7 +488,7 @@ class _ModelGeneratedOutput(_StrictModel):
 class BrandRadarWeeklyOutput(_StrictModel):
     """Validated, provenance-preserving weekly result shared by CLI and UI."""
 
-    schema_version: Literal["1.0", "1.1"]
+    schema_version: Literal["1.0", "1.1", "1.2"]
     scenario_id: Literal["brand_radar_weekly"]
     observation_settings: _ObservationSettings
     source_catalog: list[_SourceCatalogItem] = Field(min_length=1)
@@ -502,13 +524,22 @@ class BrandRadarWeeklyOutput(_StrictModel):
                 "材料未覆盖不能写成品牌无动作；应写成当前观察包未提供相关动作材料"
             )
 
-        if self.schema_version == "1.1":
+        if self.schema_version in {"1.1", "1.2"}:
             if self.investigation_trace is None:
-                raise ValueError("schema_version 1.1 requires investigation_trace")
+                raise ValueError(
+                    f"schema_version {self.schema_version} requires investigation_trace"
+                )
             _validate_generation_attempts(
                 self.investigation_trace.generation_attempts,
                 allow_empty=False,
             )
+            if self.schema_version == "1.2":
+                if self.investigation_trace.decision_log is None:
+                    raise ValueError("schema_version 1.2 requires decision_log")
+                if self.run_info.brand_profile is None:
+                    raise ValueError("schema_version 1.2 requires run_info.brand_profile")
+            elif self.investigation_trace.decision_log is not None:
+                raise ValueError("schema_version 1.1 cannot contain decision_log")
             expected_goal = {
                 "brand": self.observation_settings.brand,
                 "category": self.observation_settings.category,
@@ -933,6 +964,46 @@ def _validate_investigation_graph(
                 f"action {action_id!r} must have exactly one tool feedback"
             )
 
+    if isinstance(validated, _InvestigationTrace) and validated.decision_log is not None:
+        decision_log = validated.decision_log
+        action_sequence = [item.action_id for item in validated.selected_actions]
+        feedback_by_action = {
+            item.action_id: item.feedback_id for item in validated.tool_feedback
+        }
+        if len(action_sequence) > 3:
+            raise ValueError("schema 1.2 allows at most three investigation actions")
+        if len(decision_log) != len(action_sequence) + 1:
+            raise ValueError(
+                "decision_log must contain one investigate row per action and one final generate row"
+            )
+        if [item.round for item in decision_log] != list(
+            range(1, len(decision_log) + 1)
+        ):
+            raise ValueError("decision_log rounds must be sequential from 1")
+
+        prior_feedback_ids: list[str] = []
+        for index, row in enumerate(decision_log):
+            if row.based_on_feedback_ids != prior_feedback_ids:
+                raise ValueError(
+                    f"decision_log round {row.round} must reference all and only prior feedback ids"
+                )
+            is_final = index == len(decision_log) - 1
+            if is_final:
+                if row.decision != "generate" or row.action_id is not None:
+                    raise ValueError(
+                        "decision_log must end with generate and no action_id"
+                    )
+                continue
+            expected_action_id = action_sequence[index]
+            if row.decision != "investigate" or row.action_id != expected_action_id:
+                raise ValueError(
+                    "each non-final decision_log row must investigate its sequential action"
+                )
+            prior_feedback_ids = [
+                *prior_feedback_ids,
+                feedback_by_action[expected_action_id],
+            ]
+
     if adjustments is None:
         return
     adjustments_per_action = Counter(item.action_id for item in adjustments)
@@ -1107,9 +1178,14 @@ def parse_brand_radar_output(
                     if isinstance(item, dict) and isinstance(item.get("source_id"), str)
                 },
             )
+        schema_version = "1.0"
+        if validated_trace is not None:
+            schema_version = (
+                "1.2" if validated_trace.decision_log is not None else "1.1"
+            )
         validated = BrandRadarWeeklyOutput.model_validate(
             {
-                "schema_version": "1.1" if investigation_trace is not None else "1.0",
+                "schema_version": schema_version,
                 "scenario_id": "brand_radar_weekly",
                 "observation_settings": observation_settings,
                 "source_catalog": source_catalog,

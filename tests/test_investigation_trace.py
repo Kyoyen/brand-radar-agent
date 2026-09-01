@@ -82,6 +82,38 @@ class InvestigationTraceTests(unittest.TestCase):
             **self.runtime,
         )
 
+    def trace_1_2(self) -> dict:
+        trace = copy.deepcopy(self.trace)
+        trace["decision_log"] = [
+            {
+                "round": 1,
+                "decision": "investigate",
+                "skill_name": "signal-triage",
+                "reason": "先核对竞品材料是否足以支持当前判断。",
+                "based_on_feedback_ids": [],
+                "action_id": "action-competitor",
+            },
+            {
+                "round": 2,
+                "decision": "generate",
+                "skill_name": "brief-distillation",
+                "reason": "现有反馈足以转译为待核企划角度。",
+                "based_on_feedback_ids": ["feedback-competitor"],
+                "action_id": None,
+            },
+        ]
+        return trace
+
+    def runtime_1_2(self) -> dict:
+        runtime = copy.deepcopy(self.runtime)
+        runtime["run_info"]["brand_profile"] = {
+            "mode": "custom",
+            "file": "memory/brand/BRAND.md",
+            "answered_questions": 6,
+            "fingerprint": "a" * 64,
+        }
+        return runtime
+
     def test_trace_is_runtime_injected_and_schema_is_1_1(self) -> None:
         self.assertIn(
             "investigation_trace",
@@ -110,6 +142,66 @@ class InvestigationTraceTests(unittest.TestCase):
             "保留待核，不把传闻写入确定性企划判断。",
             result.investigation_trace.tool_feedback[0].decision_hint,
         )
+
+    def test_decision_log_upgrades_new_trace_to_1_2_and_keeps_1_1_readable(self) -> None:
+        legacy = self.parse()
+        current = parse_brand_radar_output(
+            json.dumps(self.generated, ensure_ascii=False),
+            investigation_trace=self.trace_1_2(),
+            **self.runtime_1_2(),
+        )
+
+        self.assertEqual("1.1", legacy.schema_version)
+        self.assertIsNone(legacy.investigation_trace.decision_log)
+        self.assertEqual("1.2", current.schema_version)
+        self.assertEqual(
+            ["investigate", "generate"],
+            [item.decision for item in current.investigation_trace.decision_log],
+        )
+        self.assertEqual(
+            "memory/brand/BRAND.md",
+            current.run_info.brand_profile.file,
+        )
+
+    def test_1_2_decision_log_must_be_sequential_cumulative_and_end_generate(self) -> None:
+        cases = []
+
+        no_generate = self.trace_1_2()
+        no_generate["decision_log"].pop()
+        cases.append(("end generate", no_generate))
+
+        wrong_round = self.trace_1_2()
+        wrong_round["decision_log"][1]["round"] = 3
+        cases.append(("sequential round", wrong_round))
+
+        missing_feedback = self.trace_1_2()
+        missing_feedback["decision_log"][1]["based_on_feedback_ids"] = []
+        cases.append(("cumulative feedback", missing_feedback))
+
+        generate_with_action = self.trace_1_2()
+        generate_with_action["decision_log"][1]["action_id"] = "action-competitor"
+        cases.append(("generate action", generate_with_action))
+
+        investigate_without_action = self.trace_1_2()
+        investigate_without_action["decision_log"][0]["action_id"] = None
+        cases.append(("investigate action", investigate_without_action))
+
+        for label, trace in cases:
+            with self.subTest(label=label):
+                with self.assertRaises(BrandRadarValidationError):
+                    parse_brand_radar_output(
+                        json.dumps(self.generated, ensure_ascii=False),
+                        investigation_trace=trace,
+                        **self.runtime_1_2(),
+                    )
+
+    def test_1_2_requires_program_owned_brand_profile_metadata(self) -> None:
+        with self.assertRaises(BrandRadarValidationError):
+            parse_brand_radar_output(
+                json.dumps(self.generated, ensure_ascii=False),
+                investigation_trace=self.trace_1_2(),
+                **self.runtime,
+            )
 
     def test_trace_can_be_validated_before_generation(self) -> None:
         self.assertTrue(hasattr(output_contract, "validate_investigation_preflight"))

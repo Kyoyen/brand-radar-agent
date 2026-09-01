@@ -62,23 +62,23 @@ class SuccessfulRealLLM:
         self.calls.append(kwargs)
         if self.chat_calls == 1:
             payload = {
-                "plan_steps": [
-                    {
-                        "step_id": "step-1",
-                        "objective": "核对星巴克信号是否足以进入企划会",
-                    }
-                ],
-                "actions": [
-                    {
-                        "action_id": "action-1",
-                        "step_id": "step-1",
-                        "action_type": "compare_competitor_evidence",
-                        "reason": "竞品对比是本周业务问题的必要查证。",
-                        "arguments": {"competitor": "星巴克中国"},
-                    }
-                ],
+                "decision": "investigate",
+                "skill_name": "signal-triage",
+                "objective": "核对星巴克信号是否足以进入企划会",
+                "reason": "竞品对比是本周业务问题的必要查证。",
+                "action_type": "compare_competitor_evidence",
+                "arguments": {"competitor": "星巴克中国"},
             }
         elif self.chat_calls == 2:
+            payload = {
+                "decision": "generate",
+                "skill_name": "brief-distillation",
+                "objective": "根据反馈形成周企划",
+                "reason": "本地竞品反馈已足以支持下一步企划转译。",
+                "action_type": None,
+                "arguments": {},
+            }
+        elif self.chat_calls == 3:
             result = json.loads(
                 (REPLAY_MANIFEST.parent / "expected-result.json").read_text(
                     encoding="utf-8"
@@ -96,7 +96,7 @@ class SuccessfulRealLLM:
                 "result": result,
             }
         else:
-            raise AssertionError("Successful weekly run must use exactly two model calls")
+            raise AssertionError("Successful weekly run must use exactly three model calls")
         content = json.dumps(payload, ensure_ascii=False)
         return SimpleNamespace(
             choices=[
@@ -370,6 +370,12 @@ class WeeklyRunnerTests(unittest.TestCase):
             output_files = list(output_dir.glob("*.json"))
 
         self.assertEqual("mock", output.run_info.mode)
+        self.assertEqual("1.2", output.schema_version)
+        self.assertEqual(
+            ["investigate", "generate"],
+            [item.decision for item in output.investigation_trace.decision_log],
+        )
+        self.assertIsNotNone(output.run_info.brand_profile)
         self.assertTrue(output.executive_summary.startswith("[MOCK 输出｜仅供程序烟雾测试"))
         self.assertEqual("awaiting_human_review", output.human_review.status)
         self.assertEqual([], output.human_review.external_actions)
@@ -414,12 +420,15 @@ class WeeklyRunnerTests(unittest.TestCase):
                 output_dir=Path(temporary) / "outputs",
             )
 
-        planning_prompt = fake.calls[0]["messages"][1]["content"]
-        generation_prompt = fake.calls[1]["messages"][1]["content"]
-        self.assertEqual(2, fake.chat_calls)
+        decision_prompt = fake.calls[0]["messages"][1]["content"]
+        second_decision_prompt = fake.calls[1]["messages"][1]["content"]
+        generation_prompt = fake.calls[2]["messages"][1]["content"]
+        self.assertEqual(3, fake.chat_calls)
         self.assertEqual("real", output.run_info.mode)
         self.assertEqual("fake-real-provider", output.run_info.provider)
-        self.assertIn("src_shanghai_mxgp_2026", planning_prompt)
+        self.assertEqual("1.2", output.schema_version)
+        self.assertIn("src_shanghai_mxgp_2026", decision_prompt)
+        self.assertIn("feedback-action-1", second_decision_prompt)
         self.assertIn("version_decisions", generation_prompt)
         self.assertIn("merge_records", generation_prompt)
         self.assertIn("tool_feedback", generation_prompt)
