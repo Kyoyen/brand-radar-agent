@@ -138,7 +138,7 @@ class WeeklyAgentLoopTests(unittest.TestCase):
                 "---\nname: duplicate\nname: duplicate-again\ndescription: test\n---\nbody",
                 encoding="utf-8",
             )
-            with self.assertRaisesRegex(ValueError, "重复 front matter 字段"):
+            with self.assertRaisesRegex(ValueError, "重复字段"):
                 _load_marketing_skills(root)
 
             (skill_dir / "SKILL.md").write_text("# no front matter", encoding="utf-8")
@@ -165,6 +165,60 @@ class WeeklyAgentLoopTests(unittest.TestCase):
             (second_dir / "SKILL.md").write_bytes(b"x" * 16_385)
             with self.assertRaisesRegex(ValueError, "大小"):
                 _load_marketing_skills(root)
+
+    def test_marketing_skill_loader_accepts_only_the_documented_metadata_subset(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            skill_dir = root / "one"
+            skill_dir.mkdir()
+            skill_path = skill_dir / "SKILL.md"
+
+            invalid_metadata = (
+                "---\nname: [\ndescription: valid\n---\nbody",
+                "---\nname: valid-name\ndescription: \"未闭合\n---\nbody",
+                "---\nname: \ndescription: valid\n---\nbody",
+                "---\nname: valid-name\ndescription: [structured]\n---\nbody",
+                "---\nname: valid-name\ndescription: valid\nextra: no\n---\nbody",
+            )
+            for text in invalid_metadata:
+                skill_path.write_text(text, encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "只支持"):
+                    _load_marketing_skills(root)
+
+            skill_path.write_text(
+                "---\nname: valid-name\ndescription: valid\n---\n\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "正文不能为空"):
+                _load_marketing_skills(root)
+
+    def test_marketing_skill_loader_enforces_exact_size_limit_and_one_level_scan(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            skill_dir = root / "one"
+            skill_dir.mkdir()
+            header = "---\nname: valid-name\ndescription: valid\n---\n"
+            exact_limit = header + "x" * (16 * 1024 - len(header))
+            skill_path = skill_dir / "SKILL.md"
+            skill_path.write_text(exact_limit, encoding="utf-8")
+            self.assertEqual(
+                ["valid-name"],
+                [skill.name for skill in _load_marketing_skills(root)],
+            )
+
+            skill_path.write_text(exact_limit + "x", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "大小"):
+                _load_marketing_skills(root)
+
+            skill_path.write_text(header + "body", encoding="utf-8")
+            (root / "SKILL.md").write_text("not scanned", encoding="utf-8")
+            nested = skill_dir / "nested"
+            nested.mkdir()
+            (nested / "SKILL.md").write_text("not scanned", encoding="utf-8")
+            self.assertEqual(
+                ["valid-name"],
+                [skill.name for skill in _load_marketing_skills(root)],
+            )
 
     def test_real_weekly_executes_only_selected_actions_and_persists_feedback(self) -> None:
         llm = ScriptedRealLLM(

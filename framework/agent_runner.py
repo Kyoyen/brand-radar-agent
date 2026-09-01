@@ -35,6 +35,13 @@ MARKETING_SKILL_NAMES = (
     "brand-fit",
     "brief-distillation",
 )
+_MARKETING_SKILL_METADATA_FIELDS = frozenset({"name", "description"})
+_MARKETING_SKILL_NAME_PATTERN = re.compile(r"[a-z]+(?:-[a-z]+)*")
+_MARKETING_SKILL_RESERVED_SCALAR_STARTS = frozenset("-?:,[]{}#&*!|>@`\"'")
+_MARKETING_SKILL_METADATA_SUBSET = (
+    "只支持 name 和 description 两个单行字段（可穿插空行或 # 注释）；"
+    "name 必须是小写 kebab-case，description 必须是非空的无引号纯文本"
+)
 
 
 @dataclass(frozen=True)
@@ -47,7 +54,19 @@ class _MarketingSkill:
 
 
 def _parse_marketing_skill(skill_path: Path) -> _MarketingSkill:
-    """Read the deliberately small SKILL.md contract without a YAML dependency."""
+    """Read a strict, YAML-compatible single-line metadata subset.
+
+    The subset accepts only ``name`` and ``description`` fields plus blank or
+    comment lines.  It intentionally excludes YAML sequences, mappings,
+    anchors, aliases and quoted scalars so this dependency-free parser has one
+    unambiguous contract.
+    """
+    def metadata_error(message: str) -> ValueError:
+        return ValueError(
+            f"营销技能 front matter {message}；"
+            f"{_MARKETING_SKILL_METADATA_SUBSET}：{skill_path}"
+        )
+
     size = skill_path.stat().st_size
     if size > MAX_MARKETING_SKILL_BYTES:
         raise ValueError(
@@ -55,10 +74,10 @@ def _parse_marketing_skill(skill_path: Path) -> _MarketingSkill:
         )
     text = skill_path.read_text(encoding="utf-8")
     if not text.startswith("---\n"):
-        raise ValueError(f"营销技能缺少 YAML front matter：{skill_path}")
+        raise metadata_error("缺少 YAML front matter")
     closing_marker = text.find("\n---\n", 4)
     if closing_marker == -1:
-        raise ValueError(f"营销技能 front matter 未闭合：{skill_path}")
+        raise metadata_error("未闭合")
 
     metadata: dict[str, str] = {}
     for line in text[4:closing_marker].splitlines():
@@ -66,18 +85,26 @@ def _parse_marketing_skill(skill_path: Path) -> _MarketingSkill:
             continue
         matched = re.fullmatch(r"([A-Za-z][A-Za-z0-9_-]*):[ \t]*(.*)", line)
         if not matched:
-            raise ValueError(f"营销技能 front matter 格式无效：{skill_path}")
+            raise metadata_error("格式无效")
         key, value = matched.groups()
+        if key not in _MARKETING_SKILL_METADATA_FIELDS:
+            raise metadata_error(f"不支持字段 {key}")
         if key in metadata:
-            raise ValueError(f"营销技能重复 front matter 字段 {key}：{skill_path}")
-        metadata[key] = value.strip().strip('"\'')
+            raise metadata_error(f"重复字段 {key}")
+        metadata[key] = value
 
     name = metadata.get("name", "")
     description = metadata.get("description", "")
-    if not name:
-        raise ValueError(f"营销技能 front matter 缺少非空 name：{skill_path}")
-    if not description:
-        raise ValueError(f"营销技能 front matter 缺少非空 description：{skill_path}")
+    if not _MARKETING_SKILL_NAME_PATTERN.fullmatch(name):
+        raise metadata_error("name 必须是非空小写 kebab-case")
+    if (
+        not description
+        or description != description.strip()
+        or description[0] in _MARKETING_SKILL_RESERVED_SCALAR_STARTS
+        or any(character in description for character in "\"'[]{}")
+        or re.search(r":\s|(?:^|\s)#", description)
+    ):
+        raise metadata_error("description 必须是非空单行纯文本")
     content = text[closing_marker + len("\n---\n"):].strip()
     if not content:
         raise ValueError(f"营销技能正文不能为空：{skill_path}")
