@@ -110,11 +110,12 @@ class BrandRadarReportTests(unittest.TestCase):
             self.assertEqual(report_path, root / "weekly.html")
             self.assertIn("这周先讨论什么", content)
             self.assertIn("三条企划 Brief", content)
-            self.assertIn("Agent 为什么查这些", content)
+            self.assertIn("Agent 逐轮怎么想", content)
             self.assertIn("https://example.com/source", content)
             self.assertIn("等你确认后再使用", content)
             self.assertIn("本周优先讨论：教师节节点", content)
             self.assertIn("明确不采用：主动避开的风险", content)
+            self.assertNotIn("品牌档案：", content)
             self.assertLess(
                 content.index("主动避开的风险"),
                 content.index("三条企划 Brief"),
@@ -210,6 +211,212 @@ class BrandRadarReportTests(unittest.TestCase):
         self.assertIn("信息还不够，先别放进方案：上海咖啡快闪", content)
         self.assertIn("先找到能确认它的公开信息再决定", content)
         self.assertNotIn("本周应主动避开尚未确认的上海咖啡快闪", content)
+
+    def test_1_2_report_shows_custom_brand_start_and_round_by_round_reasoning(self) -> None:
+        result = {
+            "schema_version": "1.2",
+            "observation_settings": {
+                "brand": "瑞幸咖啡",
+                "category": "现制咖啡",
+                "regions": ["全国", "上海"],
+                "calendar_window": {"start": "2026-09-07", "end": "2026-10-06"},
+            },
+            "run_info": {
+                "mode": "real",
+                "provider": "deepseek",
+                "model": "deepseek-v4-flash",
+                "completed_at": "2026-09-01T00:00:00+08:00",
+                "brand_profile": {
+                    "mode": "custom",
+                    "file": "/Users/tester/private/BRAND.md",
+                    "answered_questions": 6,
+                    "fingerprint": "a" * 64,
+                },
+            },
+            "source_catalog": [],
+            "intelligence_cards": [],
+            "calendar": [],
+            "keywords": [],
+            "briefs": [],
+            "investigation_trace": {
+                "goal_snapshot": {"business_question": "下周哪些信号值得跟进？"},
+                "plan_steps": [
+                    {"step_id": "step-1", "objective": "先确认教师节材料是不是当前版本"},
+                    {"step_id": "step-2", "objective": "再判断这个节点是否符合品牌表达"},
+                ],
+                "selected_actions": [
+                    {
+                        "action_id": "action-1",
+                        "step_id": "step-1",
+                        "reason": "节点临近，先排除旧版本。",
+                    },
+                    {
+                        "action_id": "action-2",
+                        "step_id": "step-2",
+                        "reason": "事实成立后再看品牌是否适合跟进。",
+                    },
+                ],
+                "tool_feedback": [
+                    {
+                        "feedback_id": "feedback-1",
+                        "action_id": "action-1",
+                        "outcome": "latest_version_resolved",
+                        "summary": "已确认当前通知覆盖观察周。",
+                        "decision_hint": "版本有效，继续判断品牌契合度。",
+                    },
+                    {
+                        "feedback_id": "feedback-2",
+                        "action_id": "action-2",
+                        "outcome": "verified_competitor_evidence",
+                        "summary": "竞品材料显示节点表达已经拥挤。",
+                        "decision_hint": "保留节点，但避免跟随竞品话术。",
+                    },
+                ],
+                "adjustment_reasons": [],
+                "decision_log": [
+                    {
+                        "round": 1,
+                        "decision": "investigate",
+                        "skill_name": "signal-triage",
+                        "reason": "先辨别节点材料是否还有效。",
+                        "based_on_feedback_ids": [],
+                        "action_id": "action-1",
+                    },
+                    {
+                        "round": 2,
+                        "decision": "investigate",
+                        "skill_name": "brand-fit",
+                        "reason": "第一项已确认，继续检查品牌表达空间。",
+                        "based_on_feedback_ids": ["feedback-1"],
+                        "action_id": "action-2",
+                    },
+                    {
+                        "round": 3,
+                        "decision": "generate",
+                        "skill_name": "brief-distillation",
+                        "reason": "事实与品牌边界都已明确，可以形成有依据的企划角度。<script>alert(1)</script>",
+                        "based_on_feedback_ids": ["feedback-1", "feedback-2"],
+                        "action_id": None,
+                    },
+                ],
+            },
+            "human_review": {"items": []},
+        }
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            json_path = root / "weekly.json"
+            json_path.write_text("{}", encoding="utf-8")
+            content = render_weekly_report(result, json_path=json_path).read_text(
+                encoding="utf-8"
+            )
+
+        self.assertIn("品牌档案：已定制", content)
+        self.assertIn("本轮使用：信号筛选、品牌契合、Brief 转译", content)
+        self.assertEqual(1, content.count("Agent 逐轮怎么想"))
+        self.assertNotIn("Agent 为什么查这些", content)
+        self.assertIn("第 1 轮", content)
+        self.assertIn("先想确认什么", content)
+        self.assertIn("先确认教师节材料是不是当前版本", content)
+        self.assertIn("用了什么能力", content)
+        self.assertIn("看到了什么", content)
+        self.assertIn("已确认当前通知覆盖观察周", content)
+        self.assertIn("接着怎么决定", content)
+        self.assertIn("版本有效，继续判断品牌契合度", content)
+        self.assertIn("第 3 轮", content)
+        self.assertIn("停止调查，开始成稿", content)
+        self.assertIn("事实与品牌边界都已明确", content)
+        self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", content)
+        self.assertNotIn("<script>alert(1)</script>", content)
+        self.assertNotIn("signal-triage", content)
+        self.assertNotIn("brand-fit", content)
+        self.assertNotIn("brief-distillation", content)
+        self.assertNotIn("decision_log", content)
+        self.assertNotIn("a" * 64, content)
+        self.assertNotIn("/Users/tester/private/BRAND.md", content)
+
+    def test_1_2_report_shows_default_brand_and_only_skills_actually_used(self) -> None:
+        result = {
+            "schema_version": "1.2",
+            "observation_settings": {
+                "brand": "瑞幸咖啡",
+                "category": "现制咖啡",
+                "regions": ["全国"],
+                "calendar_window": {},
+            },
+            "run_info": {
+                "mode": "real",
+                "provider": "deepseek",
+                "model": "deepseek-v4-flash",
+                "brand_profile": {
+                    "mode": "default",
+                    "file": "/Users/tester/project/BRAND.md",
+                    "answered_questions": 0,
+                    "fingerprint": "b" * 64,
+                },
+            },
+            "source_catalog": [],
+            "intelligence_cards": [],
+            "calendar": [],
+            "keywords": [],
+            "briefs": [],
+            "investigation_trace": {
+                "goal_snapshot": {"business_question": "哪些信号值得跟进？"},
+                "plan_steps": [
+                    {"step_id": "step-1", "objective": "确认唯一信号是否有效"}
+                ],
+                "selected_actions": [
+                    {
+                        "action_id": "action-1",
+                        "step_id": "step-1",
+                        "reason": "先确认材料。",
+                    }
+                ],
+                "tool_feedback": [
+                    {
+                        "feedback_id": "feedback-1",
+                        "action_id": "action-1",
+                        "outcome": "latest_version_resolved",
+                        "summary": "材料有效。",
+                        "decision_hint": "可以停止调查。",
+                    }
+                ],
+                "adjustment_reasons": [],
+                "decision_log": [
+                    {
+                        "round": 1,
+                        "decision": "investigate",
+                        "skill_name": "signal-triage",
+                        "reason": "先筛选信号。",
+                        "based_on_feedback_ids": [],
+                        "action_id": "action-1",
+                    },
+                    {
+                        "round": 2,
+                        "decision": "generate",
+                        "skill_name": "signal-triage",
+                        "reason": "唯一信号已经确认，无需继续调查。",
+                        "based_on_feedback_ids": ["feedback-1"],
+                        "action_id": None,
+                    },
+                ],
+            },
+            "human_review": {"items": []},
+        }
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            json_path = root / "weekly.json"
+            json_path.write_text("{}", encoding="utf-8")
+            content = render_weekly_report(result, json_path=json_path).read_text(
+                encoding="utf-8"
+            )
+
+        self.assertIn("品牌档案：通用默认", content)
+        self.assertIn("本轮使用：信号筛选", content)
+        self.assertNotIn("本轮使用：信号筛选、", content)
+        self.assertNotIn("品牌契合", content)
+        self.assertNotIn("Brief 转译", content)
 
 
 if __name__ == "__main__":

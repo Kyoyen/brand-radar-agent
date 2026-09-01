@@ -37,6 +37,17 @@ OUTCOME_LABELS = {
     "no_current_pack_evidence": "只有过期或被替换材料",
 }
 
+SKILL_LABELS = {
+    "signal-triage": "信号筛选",
+    "brand-fit": "品牌契合",
+    "brief-distillation": "Brief 转译",
+}
+
+BRAND_PROFILE_LABELS = {
+    "default": "通用默认",
+    "custom": "已定制",
+}
+
 PRIORITY_ORDER = {
     "actively_avoid": 0,
     "needs_verification": 1,
@@ -180,7 +191,92 @@ def _briefs(items: list[dict], card_by_id: dict[str, dict]) -> str:
     return "".join(rendered)
 
 
-def _investigation(trace: Mapping[str, Any] | None) -> str:
+def _brand_profile_summary(profile: Mapping[str, Any] | None) -> str:
+    if not profile:
+        return ""
+    label = BRAND_PROFILE_LABELS.get(profile.get("mode"))
+    return f"<span>品牌档案：{_text(label)}</span>" if label else ""
+
+
+def _used_skill_summary(decision_log: list[Mapping[str, Any]]) -> str:
+    used: list[str] = []
+    for row in decision_log:
+        label = SKILL_LABELS.get(row.get("skill_name"))
+        if label and label not in used:
+            used.append(label)
+    if not used:
+        return ""
+    return f'<p class="used-skills">本轮使用：{_text("、".join(used))}</p>'
+
+
+def _current_investigation(trace: Mapping[str, Any]) -> str:
+    actions = {
+        item.get("action_id"): item for item in trace.get("selected_actions", [])
+    }
+    steps = {item.get("step_id"): item for item in trace.get("plan_steps", [])}
+    feedback_by_action = {
+        item.get("action_id"): item for item in trace.get("tool_feedback", [])
+    }
+    feedback_by_id = {
+        item.get("feedback_id"): item for item in trace.get("tool_feedback", [])
+    }
+    adjustments = {
+        item.get("action_id"): item
+        for item in trace.get("adjustment_reasons", [])
+    }
+    decision_log = trace.get("decision_log", [])
+    rows: list[str] = []
+    for row in decision_log:
+        skill = SKILL_LABELS.get(row.get("skill_name"), "本轮判断")
+        if row.get("decision") == "generate":
+            prior_findings = [
+                feedback_by_id.get(feedback_id, {}).get("summary")
+                for feedback_id in row.get("based_on_feedback_ids", [])
+            ]
+            findings = "；".join(item for item in prior_findings if item)
+            rows.append(
+                f"""
+                <li>
+                  <div class="round-label">第 {_text(row.get('round'))} 轮</div>
+                  <dl class="reasoning-grid">
+                    <dt>先想确认什么</dt><dd>现有材料是否已经足够进入企划成稿</dd>
+                    <dt>用了什么能力</dt><dd>{_text(skill)}</dd>
+                    <dt>看到了什么</dt><dd>{_text(findings or '前面的调查反馈已经收齐')}</dd>
+                    <dt>接着怎么决定</dt><dd><strong>停止调查，开始成稿。</strong> {_text(row.get('reason'))}</dd>
+                  </dl>
+                </li>
+                """
+            )
+            continue
+
+        action = actions.get(row.get("action_id"), {})
+        step = steps.get(action.get("step_id"), {})
+        item = feedback_by_action.get(action.get("action_id"), {})
+        adjustment = adjustments.get(action.get("action_id"), {})
+        next_decision = item.get("decision_hint") or adjustment.get("reason")
+        outcome = OUTCOME_LABELS.get(item.get("outcome"), item.get("outcome"))
+        rows.append(
+            f"""
+            <li>
+              <div class="round-label">第 {_text(row.get('round'))} 轮</div>
+              <dl class="reasoning-grid">
+                <dt>先想确认什么</dt><dd><strong>{_text(step.get('objective'))}</strong><br>{_text(row.get('reason'))}</dd>
+                <dt>用了什么能力</dt><dd><strong>{_text(skill)}</strong><br>{_text(action.get('reason'))}</dd>
+                <dt>看到了什么</dt><dd><span class="outcome">{_text(outcome)}</span>{_text(item.get('summary'))}</dd>
+                <dt>接着怎么决定</dt><dd>{_text(next_decision)}</dd>
+              </dl>
+            </li>
+            """
+        )
+    question = trace.get("goal_snapshot", {}).get("business_question", "")
+    return (
+        _used_skill_summary(decision_log)
+        + f'<p class="question">“{_text(question)}”</p>'
+        + f'<ol class="investigation">{"".join(rows)}</ol>'
+    )
+
+
+def _legacy_investigation(trace: Mapping[str, Any]) -> str:
     if not trace:
         return '<p class="empty">这份旧结果没有保存 Agent 调查过程。</p>'
     actions = {item.get("action_id"): item for item in trace.get("selected_actions", [])}
@@ -205,6 +301,14 @@ def _investigation(trace: Mapping[str, Any] | None) -> str:
             )
     question = trace.get("goal_snapshot", {}).get("business_question", "")
     return f'<p class="question">“{_text(question)}”</p><ol class="investigation">{"".join(rows)}</ol>'
+
+
+def _investigation(trace: Mapping[str, Any] | None) -> str:
+    if not trace:
+        return '<p class="empty">这份旧结果没有保存 Agent 调查过程。</p>'
+    if trace.get("decision_log"):
+        return _current_investigation(trace)
+    return _legacy_investigation(trace)
 
 
 def render_weekly_report(
@@ -253,6 +357,7 @@ def render_weekly_report(
     model = " / ".join(
         part for part in [run_info.get("provider"), run_info.get("model")] if part
     )
+    brand_profile_summary = _brand_profile_summary(run_info.get("brand_profile"))
     report_path = report_path or json_path.with_suffix(".html")
     html = f"""<!doctype html>
 <html lang="zh-CN">
@@ -278,7 +383,7 @@ def render_weekly_report(
     .signals {{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }}
     .signal,.brief {{ background:var(--panel); border:1px solid var(--line); border-radius:18px; padding:22px; }}
     .signal-head {{ display:flex; justify-content:space-between; gap:12px; align-items:center; }}
-    .status,.eyebrow,.keyword,.review li span,.feedback span,.investigate-step span {{ display:inline-flex; width:max-content; border-radius:999px; padding:3px 9px; font-size:12px; font-weight:700; background:var(--mint); }}
+    .status,.eyebrow,.keyword,.review li span,.feedback span,.investigate-step span,.outcome {{ display:inline-flex; width:max-content; border-radius:999px; padding:3px 9px; font-size:12px; font-weight:700; background:var(--mint); }}
     .signal-needs_verification .status,.review li span {{ background:var(--amber); }}
     .signal-actively_avoid .status {{ background:#efd0ca; color:#7b271e; }}
     .meta {{ color:var(--muted); font-size:13px; text-align:right; }}
@@ -294,8 +399,10 @@ def render_weekly_report(
     .brief {{ display:grid; grid-template-columns:52px 1fr; gap:12px; }} .brief-number {{ color:var(--coffee); font-size:28px; font-weight:700; }}
     dl {{ display:grid; grid-template-columns:100px 1fr; gap:8px 18px; margin:18px 0 0; }} dt {{ color:var(--muted); }} dd {{ margin:0; }}
     .question {{ font-size:22px; font-weight:700; max-width:900px; }}
+    .used-skills {{ color:var(--muted); }}
     .investigation {{ list-style:none; padding:0; display:grid; gap:14px; }} .investigation>li {{ padding:18px 0; border-bottom:1px solid var(--line); }}
     .investigate-step {{ display:flex; gap:10px; align-items:center; }} .feedback {{ background:var(--panel); border-left:4px solid var(--coffee); padding:12px 14px; margin:12px 0; }} .feedback span {{ margin-right:9px; }} .adjustment {{ color:var(--coffee); }}
+    .round-label {{ color:var(--coffee); font-size:13px; font-weight:700; }} .reasoning-grid {{ grid-template-columns:120px 1fr; background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:16px; }} .reasoning-grid .outcome {{ margin-right:9px; }}
     .review {{ list-style:none; padding:0; display:grid; gap:10px; }} .review li {{ background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px; }} .review li span {{ margin-right:10px; }}
     footer {{ margin-top:60px; padding-top:24px; border-top:1px solid var(--line); color:var(--muted); font-size:13px; }}
     @media (max-width:720px) {{ main {{ width:min(100% - 22px,1120px); padding-top:28px; }} .signals {{ grid-template-columns:1fr; }} .signal-head {{ align-items:flex-start; }} .brief {{ grid-template-columns:1fr; }} dl {{ grid-template-columns:1fr; gap:2px; }} dd {{ margin-bottom:9px; }} .timeline li {{ grid-template-columns:1fr; gap:2px; }} }}
@@ -309,6 +416,7 @@ def render_weekly_report(
     <div class="meta-line">
       <span>{_text(settings.get('category'))}</span><span>{_text(' / '.join(settings.get('regions', [])))}</span>
       <span>{_text(mode)} · {_text(model)}</span><span>生成于 {_text(run_info.get('completed_at'))}</span>
+      {brand_profile_summary}
     </div>
     <p class="summary">{_text(meeting_summary)}</p>
   </header>
@@ -317,7 +425,7 @@ def render_weekly_report(
   <section><h2>三条企划 Brief</h2><div class="briefs">{_briefs(data.get('briefs', []), card_by_id)}</div></section>
   <section><h2>未来 30 天关键节点</h2>{_calendar(data.get('calendar', []), settings.get('calendar_window', {}))}</section>
   <section><h2>关键词</h2><div class="keyword-row">{keywords or '<span class="empty">暂无关键词</span>'}</div></section>
-  <section><h2>Agent 为什么查这些</h2>{_investigation(data.get('investigation_trace'))}</section>
+  <section><h2>Agent 逐轮怎么想</h2>{_investigation(data.get('investigation_trace'))}</section>
   {'<section><h2>继续观察的背景信号</h2><div class="signals">' + _signal_cards(background_cards, source_by_id) + '</div></section>' if background_cards else ''}
   <section><h2>交给你确认</h2><ul class="review">{review_items}</ul></section>
 
