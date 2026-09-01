@@ -63,7 +63,7 @@ $HOME/.codex/bin/longrun --label "Brand Radar real weekly" \
 
 ## 已完成与当前状态
 
-- README 已改成公开产品主页，使用真实周会稿截图，说明当前能力、快速开始、数据边界和企划无限画布方向。
+- README 已改成轻快的公开产品主页，以企划桌面概念图做主视觉，并用真实周会稿说明当前结果；快速开始和数据安全放在页面后半段。
 - PRD 已改成营销企划业务流程语言，包含材料、判断、交付和验收。
 - 新增 `docs/business/NEXT-WEEK-WORKFLOW.md`，用 `fusion` 从 Accio / RealReplicaBench 原始任务提炼可迁移工作方法，并转译成 Brand Radar 自有流程。
 - 新增 `docs/product/AGENT-BUILD.md`，保留“怎么打造 Agent”的工程说明。
