@@ -220,6 +220,63 @@ class BrandRadarOutputTests(unittest.TestCase):
             **(runtime if runtime is not None else self.runtime),
         )
 
+    def parse_with_trace(self, generated, runtime, trace) -> BrandRadarWeeklyOutput:
+        return parse_brand_radar_output(
+            json.dumps(generated, ensure_ascii=False),
+            **runtime,
+            investigation_trace=trace,
+        )
+
+    def gap_trace(self, competitors=None) -> dict:
+        competitors = competitors or ["库迪咖啡", "Tims 天好中国"]
+        return {
+            "goal_snapshot": {
+                "brand": "瑞幸咖啡",
+                "category": "现制咖啡",
+                "regions": ["全国", "上海"],
+                "competitors": competitors,
+                "keywords": ["早餐"],
+                "business_question": "下周有哪些值得跟进或待核的信号？",
+            },
+            "plan_steps": [
+                {
+                    "step_id": "step-gap",
+                    "objective": "确认 Tims 天好中国是否有可用于企划判断的直接材料。",
+                }
+            ],
+            "selected_actions": [
+                {
+                    "action_id": "action-gap",
+                    "step_id": "step-gap",
+                    "action_type": "compare_competitor_evidence",
+                    "reason": "目标点名竞品但观察包未必覆盖，先确认材料缺口。",
+                    "arguments": {"competitor": "Tims 天好中国"},
+                    "source_ids": [],
+                }
+            ],
+            "tool_feedback": [
+                {
+                    "feedback_id": "feedback-gap",
+                    "action_id": "action-gap",
+                    "source_ids": [],
+                    "summary": "当前观察包没有 Tims 天好中国 的直接材料。",
+                    "outcome": "no_pack_evidence",
+                    "decision_hint": "材料缺口不等于竞品没有动作；只能记录缺证，不能推断市场空位。",
+                }
+            ],
+            "adjustment_reasons": [
+                {
+                    "adjustment_id": "adjustment-gap",
+                    "action_id": "action-gap",
+                    "feedback_id": "feedback-gap",
+                    "reason": "把竞品缺材料作为待核卡，而不是挂到无关来源。",
+                }
+            ],
+            "generation_attempts": [
+                {"attempt": 1, "status": "validated", "issues": []}
+            ],
+        }
+
     def assert_invalid(self, generated=None, runtime=None) -> None:
         with self.assertRaises(BrandRadarValidationError):
             self.parse(generated=generated, runtime=runtime)
@@ -330,11 +387,78 @@ class BrandRadarOutputTests(unittest.TestCase):
         generated["calendar"][0]["date"] = "2026-10-04"
         self.assert_invalid(generated=generated)
 
+    def test_summary_wording_does_not_block_a_traceable_result(self) -> None:
+        generated = copy.deepcopy(self.generated)
+        generated["executive_summary"] = "库迪咖啡9月10日官宣全国买一送一，瑞幸本周建议立刻跟进。"
+        result = self.parse(generated=generated)
+        self.assertNotIn("库迪咖啡", result.executive_summary)
+        self.assertEqual(
+            "本周优先讨论：工作日早餐窗口 "
+            "信息不够，先别拿进方案：竞品联名传闻待核；先补来源再决定。",
+            result.executive_summary,
+        )
+
     def test_city_event_card_can_have_no_brand(self) -> None:
         generated = copy.deepcopy(self.generated)
         generated["intelligence_cards"][0]["brands"] = []
         result = self.parse(generated=generated)
         self.assertEqual(result.intelligence_cards[0].brands, [])
+
+    def test_no_pack_evidence_feedback_can_support_gap_card_without_sources(self) -> None:
+        generated = copy.deepcopy(self.generated)
+        runtime = copy.deepcopy(self.runtime)
+        runtime["observation_settings"]["competitors"].append("Tims 天好中国")
+        gap_card = {
+            "card_id": "card-tims-gap",
+            "title": "Tims 天好中国缺少直接材料",
+            "fact_summary": "本次调查反馈显示观察包没有 Tims 天好中国 的直接材料。",
+            "brands": ["Tims 天好中国"],
+            "event_date": None,
+            "regions": ["全国"],
+            "event_type": "competitor_evidence_gap",
+            "priority": "needs_verification",
+            "why_it_matters": "缺材料不能被写成竞品没有动作，但需要进入企划会提醒。",
+            "recommendation": "后续只核查竞品官方渠道，不据此判断市场空位。",
+            "risk_notes": ["不得把缺证包装为确定机会。"],
+            "pending_questions": ["Tims 天好中国下周是否有公开营销动作？"],
+            "source_ids": [],
+            "feedback_ids": ["feedback-gap"],
+        }
+        generated["intelligence_cards"].append(gap_card)
+        generated["briefs"][1]["angle"] = "Tims 天好中国缺证时先保留竞品判断空间。"
+        generated["briefs"][1]["card_ids"] = ["card-tims-gap"]
+        generated["human_review"]["items"].append(
+            {
+                "review_id": "review-tims-gap",
+                "question": "Tims 天好中国是否已有官方公开动作？",
+                "card_ids": ["card-tims-gap"],
+            }
+        )
+
+        for outcome in ("no_pack_evidence", "no_current_pack_evidence"):
+            trace = self.gap_trace()
+            trace["tool_feedback"][0]["outcome"] = outcome
+            with self.subTest(outcome=outcome):
+                result = self.parse_with_trace(generated, runtime, trace)
+                card = next(
+                    item
+                    for item in result.intelligence_cards
+                    if item.card_id == "card-tims-gap"
+                )
+                self.assertEqual([], card.source_ids)
+                self.assertEqual(["feedback-gap"], card.feedback_ids)
+
+    def test_competitor_mentions_cannot_attach_to_unrelated_card(self) -> None:
+        generated = copy.deepcopy(self.generated)
+        runtime = copy.deepcopy(self.runtime)
+        runtime["observation_settings"]["competitors"].append("Tims 天好中国")
+        generated["briefs"][1]["angle"] = "Tims 天好中国缺证时先保留竞品判断空间。"
+        generated["briefs"][1]["card_ids"] = ["card-breakfast"]
+
+        with self.assertRaises(BrandRadarValidationError) as raised:
+            self.parse_with_trace(generated, runtime, self.gap_trace())
+
+        self.assertIn("Tims 天好中国", str(raised.exception))
 
     def test_external_actions_must_be_empty(self) -> None:
         generated = copy.deepcopy(self.generated)
@@ -354,10 +478,25 @@ class BrandRadarOutputTests(unittest.TestCase):
             with self.subTest(field=field):
                 self.assert_invalid(generated=generated)
 
+    def test_material_gap_cannot_be_written_as_brand_has_no_action(self) -> None:
+        generated = copy.deepcopy(self.generated)
+        generated["executive_summary"] = "瑞幸咖啡本周无新动作。"
+        self.assert_invalid(generated=generated)
+
+    def test_research_next_step_must_name_missing_evidence(self) -> None:
+        generated = copy.deepcopy(self.generated)
+        generated["briefs"][0]["next_step"] = "调研门店周边客流。"
+        generated["briefs"][0]["missing_evidence"] = []
+        self.assert_invalid(generated=generated)
+
     def test_schema_prompt_limits_model_owned_fields(self) -> None:
         prompt = get_brand_radar_schema_prompt()
         self.assertIn("external_actions", prompt)
         self.assertIn("source_catalog", prompt)
+        self.assertIn("feedback_ids", prompt)
+        self.assertIn("no_pack_evidence", prompt)
+        self.assertIn("没有执行该竞品调查", prompt)
+        self.assertIn("品牌无新动作", prompt)
         self.assertIn("只由程序注入", prompt)
         self.assertIn("每一条 merge_records", prompt)
         self.assertIn("完整保留", prompt)

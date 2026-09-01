@@ -1,15 +1,19 @@
 from __future__ import annotations
 
 import copy
+import io
 import json
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
 
 from framework.agent_runner import AgentRunner
 from framework.llm_client import LLMClient, LLMConfigurationError, LLMRequestError
 from scenarios.brand_radar_weekly import (
+    INVESTIGATION_ACTION_NAMES,
+    INVESTIGATION_TOOLS,
     WEEKLY_TOOL_ORDER,
     WEEKLY_TOOLS,
     WeeklyScenarioRuntime,
@@ -50,11 +54,50 @@ class SuccessfulRealLLM:
     def __init__(self) -> None:
         self.chat_calls = 0
         self.last_messages = []
+        self.calls = []
 
     def chat(self, **kwargs):
         self.chat_calls += 1
         self.last_messages = kwargs["messages"]
-        content = (REPLAY_MANIFEST.parent / "expected-result.json").read_text(encoding="utf-8")
+        self.calls.append(kwargs)
+        if self.chat_calls == 1:
+            payload = {
+                "plan_steps": [
+                    {
+                        "step_id": "step-1",
+                        "objective": "核对星巴克信号是否足以进入企划会",
+                    }
+                ],
+                "actions": [
+                    {
+                        "action_id": "action-1",
+                        "step_id": "step-1",
+                        "action_type": "compare_competitor_evidence",
+                        "reason": "竞品对比是本周业务问题的必要查证。",
+                        "arguments": {"competitor": "星巴克中国"},
+                    }
+                ],
+            }
+        elif self.chat_calls == 2:
+            result = json.loads(
+                (REPLAY_MANIFEST.parent / "expected-result.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            payload = {
+                "adjustment_reasons": [
+                    {
+                        "adjustment_id": "adjustment-1",
+                        "action_id": "action-1",
+                        "feedback_id": "feedback-action-1",
+                        "reason": "竞品反馈确认存在可引用材料，据此保留竞品卡。",
+                    }
+                ],
+                "result": result,
+            }
+        else:
+            raise AssertionError("Successful weekly run must use exactly two model calls")
+        content = json.dumps(payload, ensure_ascii=False)
         return SimpleNamespace(
             choices=[
                 SimpleNamespace(
@@ -266,6 +309,56 @@ class WeeklyRunnerTests(unittest.TestCase):
         )
         self.assertEqual({"type": "json_object"}, captured["response_format"])
 
+    def test_deepseek_streaming_reports_real_progress_and_aggregates_json(self) -> None:
+        captured: dict = {}
+
+        class FakeCompletions:
+            def create(self, **kwargs):
+                captured.update(kwargs)
+                return iter(
+                    [
+                        SimpleNamespace(
+                            choices=[
+                                SimpleNamespace(
+                                    delta=SimpleNamespace(content='{"ok":'),
+                                    finish_reason=None,
+                                )
+                            ]
+                        ),
+                        SimpleNamespace(
+                            choices=[
+                                SimpleNamespace(
+                                    delta=SimpleNamespace(content="true}"),
+                                    finish_reason="stop",
+                                )
+                            ]
+                        ),
+                    ]
+                )
+
+        client = object.__new__(LLMClient)
+        client.provider = "deepseek"
+        client.model = "deepseek-v4-flash"
+        client._client = SimpleNamespace(
+            chat=SimpleNamespace(completions=FakeCompletions())
+        )
+
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            response = client._chat_openai_compat(
+                messages=[{"role": "user", "content": "输出 JSON"}],
+                tools=None,
+                temperature=0.1,
+                max_tokens=30,
+                response_format={"type": "json_object"},
+                stream_progress=True,
+            )
+
+        self.assertTrue(captured["stream"])
+        self.assertEqual('{"ok":true}', response.choices[0].message.content)
+        self.assertEqual("stop", response.choices[0].finish_reason)
+        self.assertIn("模型响应", stdout.getvalue())
+
     def test_mock_run_uses_expected_result_and_writes_review_gated_json(self) -> None:
         fake = FakeLLM(is_mock=True)
         runner = AgentRunner(llm=fake)
@@ -291,7 +384,13 @@ class WeeklyRunnerTests(unittest.TestCase):
     def test_weekly_tools_have_no_external_action_capability(self) -> None:
         tool_names = [tool["function"]["name"] for tool in WEEKLY_TOOLS]
         self.assertEqual(list(WEEKLY_TOOL_ORDER), tool_names)
-        serialized = json.dumps(WEEKLY_TOOLS, ensure_ascii=False).lower()
+        investigation_names = [
+            tool["function"]["name"] for tool in INVESTIGATION_TOOLS
+        ]
+        self.assertEqual(list(INVESTIGATION_ACTION_NAMES), investigation_names)
+        serialized = json.dumps(
+            [*WEEKLY_TOOLS, *INVESTIGATION_TOOLS], ensure_ascii=False
+        ).lower()
         for forbidden in (
             "send",
             "publish",
@@ -315,14 +414,16 @@ class WeeklyRunnerTests(unittest.TestCase):
                 output_dir=Path(temporary) / "outputs",
             )
 
-        user_prompt = fake.last_messages[1]["content"]
-        self.assertEqual(1, fake.chat_calls)
+        planning_prompt = fake.calls[0]["messages"][1]["content"]
+        generation_prompt = fake.calls[1]["messages"][1]["content"]
+        self.assertEqual(2, fake.chat_calls)
         self.assertEqual("real", output.run_info.mode)
         self.assertEqual("fake-real-provider", output.run_info.provider)
-        self.assertIn("src_shanghai_mxgp_2026", user_prompt)
-        self.assertIn("version_decisions", user_prompt)
-        self.assertIn("merge_records", user_prompt)
-        self.assertNotIn("expected-result.json", user_prompt)
+        self.assertIn("src_shanghai_mxgp_2026", planning_prompt)
+        self.assertIn("version_decisions", generation_prompt)
+        self.assertIn("merge_records", generation_prompt)
+        self.assertIn("tool_feedback", generation_prompt)
+        self.assertNotIn("expected-result.json", generation_prompt)
         self.assertNotIn("[MOCK 输出", output.executive_summary)
         self.assertTrue(output_path.name.startswith("brand_radar_weekly-real-"))
 

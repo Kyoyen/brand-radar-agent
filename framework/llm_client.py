@@ -17,6 +17,8 @@ LLM Client — 大模型接口抽象层
 """
 
 import os
+import time
+from types import SimpleNamespace
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -139,13 +141,21 @@ class LLMClient:
     # ── 公开接口 ──────────────────────────────────────────────────────────────
 
     def chat(self, messages: list, tools: list = None, temperature: float = 0.2,
-             max_tokens: int = 2000, response_format: dict = None):
+             max_tokens: int = 2000, response_format: dict = None,
+             stream_progress: bool = False):
         """统一对话接口，屏蔽底层平台差异。"""
         if self._mock:
             return self._chat_mock(messages, tools)
         try:
             if self.provider in ("openai", "zhipu", "moonshot", "deepseek"):
-                return self._chat_openai_compat(messages, tools, temperature, max_tokens, response_format)
+                return self._chat_openai_compat(
+                    messages,
+                    tools,
+                    temperature,
+                    max_tokens,
+                    response_format,
+                    stream_progress=stream_progress,
+                )
             return self._chat_anthropic(messages, tools, temperature, max_tokens)
         except LLMRequestError:
             raise
@@ -209,7 +219,15 @@ class LLMClient:
             max_retries=0,
         )
 
-    def _chat_openai_compat(self, messages, tools, temperature, max_tokens, response_format):
+    def _chat_openai_compat(
+        self,
+        messages,
+        tools,
+        temperature,
+        max_tokens,
+        response_format,
+        stream_progress=False,
+    ):
         kwargs = dict(model=self.model, messages=messages,
                       temperature=temperature, max_tokens=max_tokens)
         # DeepSeek V4 defaults to high-effort thinking. This client historically
@@ -222,7 +240,51 @@ class LLMClient:
             kwargs["tool_choice"] = "auto"
         if response_format:
             kwargs["response_format"] = response_format
-        return self._client.chat.completions.create(**kwargs)
+        if not stream_progress:
+            return self._client.chat.completions.create(**kwargs)
+        if tools:
+            raise LLMConfigurationError("stream_progress 目前只用于无工具的结构化模型请求")
+
+        kwargs["stream"] = True
+        chunks = self._client.chat.completions.create(**kwargs)
+        content_parts: list[str] = []
+        finish_reason = None
+        received_chunks = 0
+        last_progress_at: float | None = None
+        for chunk in chunks:
+            choices = getattr(chunk, "choices", None) or []
+            if not choices:
+                continue
+            choice = choices[0]
+            received_chunks += 1
+            if received_chunks == 1:
+                print("  [模型响应] 已开始接收", flush=True)
+                last_progress_at = time.monotonic()
+            elif (
+                last_progress_at is not None
+                and time.monotonic() - last_progress_at >= 5.0
+            ):
+                print("  [模型响应] 持续接收中", flush=True)
+                last_progress_at = time.monotonic()
+            delta = getattr(choice, "delta", None)
+            content = getattr(delta, "content", None)
+            if content:
+                content_parts.append(content)
+            if getattr(choice, "finish_reason", None):
+                finish_reason = choice.finish_reason
+
+        return SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(
+                        content="".join(content_parts),
+                        role="assistant",
+                        tool_calls=None,
+                    ),
+                    finish_reason=finish_reason or "stop",
+                )
+            ]
+        )
 
     def _chat_anthropic(self, messages, tools, temperature, max_tokens):
         system = next((m["content"] for m in messages if m["role"] == "system"), "")

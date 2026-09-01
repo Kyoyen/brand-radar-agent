@@ -68,6 +68,7 @@ def cmd_run(task: str, brand: str = None):
 
 def cmd_weekly(source_pack: str, require_api: bool, task: str | None = None) -> int:
     from framework import AgentRunner
+    from framework.brand_radar_report import render_weekly_report
     from framework.brand_radar_output import BrandRadarValidationError
     from framework.llm_client import LLMConfigurationError, LLMRequestError
     from scenarios.brand_radar_weekly import WeeklyPipelineError, WeeklySourcePackError
@@ -97,19 +98,31 @@ def cmd_weekly(source_pack: str, require_api: bool, task: str | None = None) -> 
         return 5
     except BrandRadarValidationError as exc:
         print(f"\n[失败] Brand Radar 结果校验未通过：{exc}")
+        for issue in exc.issues[:8]:
+            print(
+                f"  - {issue.location}: {issue.message} "
+                f"({issue.type})"
+            )
         return 6
     except Exception as exc:
         print(f"\n[失败] 周企划未完成（{type(exc).__name__}）。未生成结果，也未降级为 Mock。")
         return 7
 
     data = output.model_dump(mode="json")
+    try:
+        report_path = render_weekly_report(output, json_path=output_path)
+    except Exception as exc:
+        print(f"\n[失败] 业务结果已保存，但周会版报告生成失败（{type(exc).__name__}）。")
+        print(f"可追溯结果仍可复查：{output_path}")
+        return 8
     info = data["run_info"]
     review = data["human_review"]
     print("\n✓ Brand Radar weekly 已生成并通过专用校验")
     print(f"  模式：{info['mode'].upper()}")
     print(f"  Provider / 模型：{info['provider']} / {info['model']}")
     print(f"  材料包：{info['source_pack']}")
-    print(f"  结果：{output_path}")
+    print(f"  可追溯结果：{output_path}")
+    print(f"  周会版报告：{report_path}")
     print(f"  情报卡 / Brief：{len(data['intelligence_cards'])} / {len(data['briefs'])}")
     print(f"  控制点：{review['status']}；未发送飞书、未发布、未投放、未改预算")
     if info["mode"] == "mock":
