@@ -1,12 +1,12 @@
 # Mac Mini 交接说明
 
-更新日期：2026-08-31
+更新日期：2026-09-01
 
 ## 交接结论
 
-本仓库已在目标提交 `08704a00e2e3105934b4345154babbd91ff67a4a` 之上继续 Day 1–2 可运行骨架。当前 `schema_version=1.1` 已实现有界调查闭环，并用真实 DeepSeek `deepseek-v4-flash` 跑通默认周报和库迪目标变体；结果同时保存 JSON 和同源 HTML 周会稿。流程默认停在人工复核前。
+本仓库已经形成可运行的品牌驱动单 Agent 演示骨架。企划人员可以使用通用 `BRAND.md`，也可以通过六个可跳过的问题形成一份本机定制档案；Agent 随后逐轮选择要查的信号和所需营销能力，把品牌起点、反馈过程、企划结果一起写入 JSON 与同源 HTML 周会稿，最后停在人工复核前。
 
-这可以称为 Day 1–2 可运行周会骨架通过，但不能称为完整成熟 Brand Radar Agent。当前是代码原生的受约束单 Agent 工作流，不是 Dify；四个固定证据预处理阶段由程序执行，模型记录调查计划并从本地白名单选择 1–4 个动作，读取反馈后生成，专用校验失败时最多修正一次。亮点是目标驱动调查、受限行动、反馈调整和营销特化；安全边界是基础要求，不是卖点。
+这可以称为品牌驱动的可运行单 Agent 演示骨架，但不能称为完整成熟或自治营销产品。当前入口仍是终端建档向导与 CLI，不是 GUI，也不是 Dify；亮点是品牌取舍进入每轮判断、按需选择营销能力、读取反馈后继续或停止，以及最后交给人确认。
 
 第一版目标只做一件事：使用真实模型 API Key 读取咖啡品类 Replay / 人工补充材料，输出下周企划会需要的情报流、30 天日历、重点关键词和 3 条 Brief，并停在人工复核前。
 
@@ -14,8 +14,8 @@
 
 - 私有远端：`https://github.com/Kyoyen/brand-radar-agent.git`
 - 目标分支：`docs/lean-demo-cleanup-20260831`
-- 起始提交：`08704a00e2e3105934b4345154babbd91ff67a4a`
-- 当前可见工作树：有代码、测试和文档变更待提交；不要描述为 clean。`.env`、`.venv`、`outputs/` 和 `.longrun/` 不属于远端交付，也不会跨机迁移。
+- 功能基线：`098051fc95f422506c2d99ab6566c98c13643f8f`；文档同步提交以当前分支 `HEAD` 为准。
+- `.env`、`.venv`、`memory/brand/BRAND.md`、`outputs/` 和 `.longrun/` 不属于远端交付，也不会跨机迁移。新机器使用仓库通用 `BRAND.md` 起步，若需要定制档案则重新完成六问。
 
 新机器不要复制 `.venv` 或 Key。当前 weekly 只需要核心依赖；默认源卡住时可切清华源，不必为了旧实时工具先硬装 `lxml`：
 
@@ -36,6 +36,8 @@ cp .env.example .env
 $HOME/.codex/bin/longrun --label "Brand Radar regression" \
   --timeout 120 --stall-timeout 30 --max-retries 0 -- \
   .venv/bin/python -m unittest discover -s tests -p 'test_*.py'
+
+.venv/bin/python run.py --brand-setup
 
 $HOME/.codex/bin/longrun --label "Brand Radar real weekly" \
   --timeout 120 --stall-timeout 30 --max-retries 0 -- \
@@ -68,28 +70,31 @@ $HOME/.codex/bin/longrun --label "Brand Radar real weekly" \
 - `.env.example` 已明确 Mock 只用于烟雾测试；`.gitignore` 已忽略 `.env`、`outputs/`、`memory/` 和本地日志。
 - 已准备咖啡 Replay 包及人工期望结果，包含重复、版本替换、过期、待核和风险节点。
 - 已实现 `brand_radar_weekly`、专用证据链校验和 `--weekly / --source-pack / --require-api`。
-- weekly 入口只注册本地只读工具，结果强制 `external_actions=[]` 与 `awaiting_human_review`。
-- 四个固定证据预处理阶段为 `read_weekly_settings`、`read_weekly_source_pack`、`resolve_weekly_versions`、`merge_weekly_events`。
-- 当前 1.1 调查白名单为 `inspect_local_evidence`、`compare_event_versions`、`compare_competitor_evidence`、`cross_check_conflicting_evidence`，模型一次选择 1–4 个动作。
-- 当前 1.1 默认真实周报主演示成功：`outputs/brand_radar_weekly-real-20260901-100927-543102.json` 与同名 HTML，真实 `deepseek-v4-flash`，27.6 秒，3 个调查动作、首轮生成即通过、7 张情报卡、3 条 Brief，`awaiting_human_review`，`external_actions=[]`。此前 `004131` 只作为旧证据保留。
-- 库迪目标变体成功：`outputs/brand_radar_weekly-real-20260901-001559-688407.json` 与同名 HTML，路径转向库迪缺证与快闪关联，并生成缺证卡供人工复核。
-- 错误 Key 已验证：0.7 秒退出码 3，明确失败，无新增 JSON / HTML / tmp，无 Mock。
-- 当前测试数为 73。
+- 已提供通用 `BRAND.md` 与 `python3 run.py --brand-setup`；六问可逐题跳过，首次建档全部跳过时不生成本机定制档案。
+- 已提供信号筛选、品牌契合和 Brief 转译三个营销技能；Agent 每轮按当前目标选择一项。
+- weekly 只读取本次观察包，最终等待人工复核，不发送、发布、投放或改预算。
+- 当前真实主演示成功：`outputs/brand_radar_weekly-real-20260901-115850-982265.json` 与同名 HTML，真实 `deepseek-v4-flash`，约 29.5 秒，通用品牌档案、四轮决策、三个调查动作、7 张情报卡、3 条不同 Brief，最终停在人工复核且无外部动作。
+- 真实路径依次核对待核的上海咖啡快闪、上海旅游节版本组和当前来源，第四轮停止调查并开始成稿；本轮实际使用信号筛选和 Brief 转译。
+- 显式 Mock 冒烟清楚标记为程序测试，产物为 `outputs/brand_radar_weekly-mock-20260901-115812-076795.{json,html}`。
+- 错误 Key 已验证：约 0.9 秒退出码 3，明确失败，产物总数保持 28，无新增 JSON / HTML / tmp，无 Mock。
+- 当前全量测试数为 100。
+- HTML 结构检查已通过；由于应用内浏览器阻止本地 `file://` 导航，本轮没有完成视觉打开检查，不能描述为已视觉确认。
 - 17:50 左右程序合成 `adjustment_reasons` 的文件不得作为真实 Agent 证据或 Dashboard 输入。
+- 上述 `outputs/` 文件均为本机忽略证据，不随 Git 交付；新机器必须使用目标命令重新生成。
 
 ## 已知事实
 
 - `run.py` 是当前 CLI 入口，现有命令 `python3 run.py --help` 和 `python3 run.py --list` 可作为基线检查。
 - `framework/llm_client.py` 支持 OpenAI、Anthropic、DeepSeek、Moonshot 和 Zhipu；weekly 的 `--require-api` 会禁止缺 Key 或请求失败时进入 Mock。
-- `framework/agent_runner.py` 已有场景识别、工具调用、轮次限制、重复调用保护、1.1 计划 / 调查 / 修正闭环和结构化输出解析。
+- 品牌档案、六问状态机、营销技能和逐轮决策的实现细节统一见 `docs/product/AGENT-BUILD.md`。
 - `framework/scenario_registry.json` 仍保留早期多场景配置，但 `brand_radar_weekly` 只注册四个本地只读阶段，不注册飞书或其他外部写入工具。
 - 咖啡 Replay 包、`brand_radar_weekly`、专用结果校验、真实 Key 合格产物和本地 HTML 周会稿均已具备；交互 Dashboard / chat 尚未实现，下一阶段按用户使用价值决定是否做。
 
-当前唯一 canonical 交付物是通过专用校验后原子保存的 JSON。JSON 与 HTML 共用一份由已校验情报卡 priority 生成的人话摘要，不保存无卡片支撑的模型草稿句；模型判断仍可从卡片、Brief、调查动作和工具反馈追溯。HTML 周会稿、未来 Dashboard、未来报告和可能的 chat 解释入口都必须读取同一份 artifact；当前 CLI 没有 GUI chat、交互 Dashboard、自动刷新或实时抓取。首页按 priority 稳定生成“本周优先讨论 / 信息不够先别拿进方案 / 明确不采用 / 继续观察”的人话结论，并优先露出待核卡。
+当前唯一 canonical 交付物是通过专用校验后原子保存的 JSON。HTML 周会稿、未来 GUI / chat 和未来报告都必须读取同一份结果；当前 CLI 没有 GUI chat、交互 Dashboard、自动刷新或实时抓取。首页稳定生成“本周优先讨论 / 信息不够先别拿进方案 / 明确不采用 / 继续观察”的人话结论，并优先露出待核卡。
 
 ## Mac Mini 下一项任务
 
-下一项最小产品工作是基于 73 项测试和 `100927` 主演示做 postflight 收尾，补充一批更接近真实企划的消费、竞品和内容素材，让 Brief 从“方向雏形”升级到可直接进入创意会的版本；再根据使用反馈决定是否增加交互 Dashboard / chat。不要为了形式迁移 Dify，也不要先做复杂框架或旧目录迁移。
+下一项最小产品工作是把现有六问状态机接到轻量 GUI / chat，再用一份真实定制品牌档案复跑默认观察包，验证品牌取舍会合理改变调查路径、优先级和 Brief。不要先做复杂 Dashboard，不要为了形式迁移 Dify，也不要先做旧目录迁移。
 
 ## 目标命令
 
@@ -103,12 +108,14 @@ python3 run.py --list
 当前已支持：
 
 ```bash
+python3 run.py --brand-setup
+
 python3 run.py --weekly \
   --source-pack data/replay/coffee-week-2026-09-07/manifest.json \
   --require-api
 ```
 
-验收通过时应显示真实 Provider、模型、材料包、JSON 输出位置、HTML 周会稿位置和人工复核提示。主动去掉 `--require-api` 且缺 Key 时，才允许进入清楚标记的 Mock 烟雾测试。
+`--brand-setup` 不调用模型；跳过建档后继续使用通用 `BRAND.md`。周企划验收通过时应显示真实 Provider、模型、材料包、JSON 输出位置、HTML 周会稿位置和人工复核提示。主动去掉 `--require-api` 且缺 Key 时，才允许进入清楚标记的 Mock 烟雾测试。
 
 ## 原始案例参考边界
 

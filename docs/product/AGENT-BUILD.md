@@ -1,24 +1,30 @@
 # Agent 打造说明
 
-更新日期：2026-08-31
+更新日期：2026-09-01
 
 ## 第一版 Agent 要完成的工作
 
 第一版只有一名 Agent 和一条业务主线；范围确认、例外处理和最终采用都由企划人员把关。
 
 ```text
+企划人员完成或跳过品牌六问
+        ↓
+程序加载通用或本机定制 BRAND.md
+        ↓
 企划人员确认下周问题
         ↓
-Agent 读取本次材料并核对版本
+程序读取材料、核对版本并合并事件
         ↓
-Agent 合并事件、判断优先级、生成企划结果
+Agent 逐轮选择营销技能与本地调查动作
+        ↓
+Agent 读取反馈，继续调查或生成企划结果
         ↓
 企划人员查看来源，采用、退回或要求补证
 ```
 
 ### 最小链路的实现约束
 
-2026-08-31 的逻辑原型确认，第一版只需要记录一条有界阶段链：读取材料、核对版本、合并事件、形成调查计划、选择本地白名单动作、读取工具反馈、生成结果、最多修正一次、等待人工复核。正式实现不引入通用工作流引擎；程序必须拒绝阶段外跳转，并由结果校验强制 `external_actions` 为空、复核状态为 `awaiting_human_review`。发送、发布、投放和预算变更不属于这条状态链，也不注册为本场景工具。
+当前 `schema_version=1.2` 只记录一条有界阶段链：加载品牌档案、读取材料、核对版本、合并事件、逐轮选择营销技能与本地白名单动作、读取工具反馈、生成结果、最多修正一次、等待人工复核。正式实现不引入通用工作流引擎；程序必须拒绝阶段外跳转，并由结果校验强制 `external_actions` 为空、复核状态为 `awaiting_human_review`。发送、发布、投放和预算变更不属于这条状态链，也不注册为本场景工具。
 
 模型的价值在于处理材料之间的关系和业务语境；稳定规则由程序保证。去重键、来源字段、卡片引用、日期范围和“禁止自动外发”等规则不交给模型自由发挥。
 
@@ -26,7 +32,7 @@ Agent 合并事件、判断优先级、生成企划结果
 
 当前实现是代码原生的受约束单 Agent 工作流，不是 Dify。Dify 是可选编排平台，不是 Agent 定义；V1 不为改变外观迁移平台，也不增加多 Agent。
 
-Day 1–2 当前可以称为真实 Key 跑通的可运行骨架，但不能称为完整成熟 Agent。历史 `schema_version=1.0` 曾用真实 DeepSeek Key 生成通过专用校验的 JSON；当前 `schema_version=1.1` 已加入有界闭环，并已用 DeepSeek `deepseek-v4-flash` 跑通默认周报和库迪目标变体。主演示默认周报 `100927` 用时 27.6 秒，产出 7 张情报卡、3 条 Brief、3 个调查动作，首轮生成即通过；库迪变体的调查路径转向库迪缺证与快闪关联。17:50 左右程序合成 `adjustment_reasons` 的文件仍不得作为演示证据。
+当前可以称为品牌驱动、真实 Key 跑通的单 Agent 演示骨架，但不能称为完整成熟或自治营销产品。历史 `schema_version=1.0` / `1.1` 结果只保留作兼容证据；当前 `schema_version=1.2` 已把品牌档案、营销技能选择和逐轮决策纳入可追溯结果。最新 DeepSeek `deepseek-v4-flash` 真实运行 `115850` 约 29.5 秒，使用通用 `BRAND.md`，完成四轮决策、三个调查动作和最终生成，产出 7 张情报卡、3 条 Brief，并停在人工复核。17:50 左右程序合成 `adjustment_reasons` 的旧文件仍不得作为演示证据。
 
 ### 当前 Agent 性验收门
 
@@ -34,21 +40,42 @@ Day 1–2 当前可以称为真实 Key 跑通的可运行骨架，但不能称�
 
 ```text
 营销目标
-  → 观察本地材料与当前缺口
-  → Agent 记录调查计划并从白名单选择必要动作
+  → 加载实际生效的 BRAND.md
+  → 观察本地材料、当前缺口和营销技能目录
+  → Agent 每轮选择一项营销技能，以及调查或成稿
   → 程序执行本地查证 / 版本比较 / 竞品对比 / 冲突核对
-  → Agent 读取反馈并生成周企划结果
+  → Agent 读取反馈，再决定继续调查或生成周企划结果
   → Brand Radar 专用校验
   → 失败时最多反馈修正一次
   → 人工复核或明确失败
 ```
 
-程序仍强制来源范围、最大动作数、最大一次修正、原子落盘和外部动作禁令。调查计划、所选动作、工具反馈摘要和调整理由进入运行记录，便于判断变化来自真实调查路径，而不是固定 JSON 模板。当前默认周报和库迪目标变体已经提供初步路径差异证据；后续仍要继续扩大来源包质量、图像素材、人工复核体验和交互入口。
+程序仍强制来源范围、最多三个调查动作、最多一次修正、原子落盘和外部动作禁令。`decision_log` 保存每轮技能、调查 / 成稿选择、理由和所依据的反馈；调查计划、所选动作、工具反馈摘要和调整理由也进入运行记录，便于判断变化来自真实调查路径，而不是固定 JSON 模板。最新真实运行依次检查上海咖啡快闪、解决上海旅游节版本组、读取当前旅游节来源，第四轮才停止调查并生成；实际选择了 `signal-triage` 与 `brief-distillation`。
+
+## 品牌档案与六问状态机
+
+- 仓库根目录 `BRAND.md` 是通用默认档案：当品牌信息不足时保持克制，不替品牌补写定位、人群、承诺或热点偏好。
+- `python3 run.py --brand-setup` 是当前终端建档入口，不调用模型。六问依次覆盖品牌记忆、核心人群与场景、承诺与可信依据、声音与反例、热点与竞品取舍、红线与人工确认。
+- 每一问均可输入 `skip` / `跳过`；未回答部分沿用当前值。首次建档全部跳过时不创建本机档案，后续继续使用根目录 `BRAND.md`；已有本机档案且本轮没有新答案时，原档案保持不变。
+- 有有效回答且用户确认保存后，程序原子写入已忽略的 `memory/brand/BRAND.md`。运行时优先级为显式档案路径、本机定制档案、仓库通用档案。
+- 档案正文进入每一轮决策与最终生成；输出只记录 `default` / `custom`、相对文件标识、回答数和 fingerprint。HTML 只显示“通用默认 / 已定制”，不泄露 fingerprint 或本机绝对路径。
+- `BrandInterview` 只管理六问状态，不绑定终端 I/O，下一步可以直接复用到轻量 GUI / chat。
+
+## 三个营销技能
+
+`skills/brand-radar/` 当前只有三个一层目录的本地技能：
+
+- `signal-triage`：先判断信号值得跟进、观察、避开还是待核。
+- `brand-fit`：使用实际生效的 `BRAND.md` 判断热点是否适合品牌。
+- `brief-distillation`：把已核判断转成三条人群、时机和创意逻辑不同的 Brief。
+
+首轮只给模型技能名称与简介；模型选择后，完整技能正文从下一轮及最终生成开始生效。加载器只接受约定的 `name` / `description` 元数据、限制单文件大小并拒绝未知或重复技能。每轮只能选一个技能；周会稿按首次出现顺序只显示本次实际使用的技能。
 
 ## 人、模型和程序如何分工
 
 ### 企划人员
 
+- 回答或跳过六个品牌问题，确认本次使用通用还是定制档案。
 - 说明品牌、竞品、地区、时间和业务问题。
 - 提供材料并声明品牌安全边界。
 - 处理版本冲突、低证据结论和敏感事项。
@@ -56,6 +83,7 @@ Day 1–2 当前可以称为真实 Key 跑通的可运行骨架，但不能称�
 
 ### 模型
 
+- 每轮根据目标、品牌档案和已有反馈选择适用的营销技能。
 - 判断材料是否与本次任务相关。
 - 识别不同材料之间的版本、补充和冲突关系。
 - 在规则允许的范围内判断“本周跟进 / 继续观察 / 主动避开 / 待核”。
@@ -63,6 +91,8 @@ Day 1–2 当前可以称为真实 Key 跑通的可运行骨架，但不能称�
 
 ### 程序
 
+- 以显式、本机、通用的顺序加载品牌档案，并安全保存六问结果。
+- 只向模型开放三个已校验营销技能和四类本地只读调查动作。
 - 读取材料清单并保留来源、日期和类型。
 - 按稳定字段合并明显重复项，检查卡片与 Brief 的引用关系。
 - 限制执行轮次和重复调用，记录失败原因。
@@ -93,24 +123,37 @@ Day 1–2 当前可以称为真实 Key 跑通的可运行骨架，但不能称�
 
 这些旧代码仍只是基础能力；Day 1–2 已通过独立的 `brand_radar_weekly` 入口把当前产品收敛为单一周企划流程，未删除或迁移旧场景。
 
-## Day 1–2 落地状态
+## 当前落地状态
 
 1. `--require-api` 已实现；缺 Key、错误 Key 或模型失败都会明确停止，不静默降级 Mock。
-2. `brand_radar_weekly` 已加入注册表；四个固定证据预处理阶段为 `read_weekly_settings`、`read_weekly_source_pack`、`resolve_weekly_versions`、`merge_weekly_events`。
-3. 当前 `schema_version=1.1` 让模型在预处理后记录调查计划，并从本地白名单中选择 1–4 个动作：`inspect_local_evidence`、`compare_event_versions`、`compare_competitor_evidence`、`cross_check_conflicting_evidence`。
-4. weekly 不调用旧外部工具、飞书或历史写入器，只读取观察包、生成结果并停在人工复核前。
-5. `framework/brand_radar_output.py` 已新增情报卡、日历、关键词、Brief、来源、调查轨迹与人工复核的专用校验。
-6. Replay、PUBLIC、MANUAL、Mock 与 real 状态分别保留在观察包和输出元数据中。
-7. 当前 `schema_version=1.1` 真实默认周报主演示成功：`outputs/brand_radar_weekly-real-20260901-100927-543102.json` 与同名 HTML，27.6 秒，7 卡 / 3 Brief，3 个调查动作，首轮生成即通过，`awaiting_human_review`，`external_actions=[]`。此前 `004131` 只作为旧证据保留。
-8. 库迪目标变体成功：`outputs/brand_radar_weekly-real-20260901-001559-688407.json` 与同名 HTML，调查路径转向库迪缺证与快闪关联，并生成缺证卡供人工复核。
-9. 错误 Key 0.7 秒退出码 3，明确失败，没有新增 JSON / HTML / tmp，没有降级 Mock。
-10. 当前测试数为 73。
+2. `--brand-setup` 已实现终端六问；逐题可跳过，首次建档全部跳过时保持通用 `BRAND.md`，有效回答经确认后原子保存为本机定制档案。
+3. `brand_radar_weekly` 已加入注册表；四个固定证据预处理阶段为 `read_weekly_settings`、`read_weekly_source_pack`、`resolve_weekly_versions`、`merge_weekly_events`。
+4. 当前 `schema_version=1.2` 让模型逐轮在三个营销技能中选择一项，再决定执行一个本地白名单动作或生成；本地动作仍为 `inspect_local_evidence`、`compare_event_versions`、`compare_competitor_evidence`、`cross_check_conflicting_evidence`。
+5. weekly 不调用旧外部工具、飞书或历史写入器，只读取观察包、生成结果并停在人工复核前。
+6. `framework/brand_radar_output.py` 校验情报卡、日历、关键词、Brief、来源、品牌档案元数据、逐轮决策、调查轨迹与人工复核。
+7. Replay、PUBLIC、MANUAL、Mock 与 real 状态分别保留在观察包和输出元数据中。
+8. 真实主演示 `outputs/brand_radar_weekly-real-20260901-115850-982265.json` 与同名 HTML 约 29.5 秒成功：通用品牌档案、四轮决策、三个调查动作、7 卡 / 3 Brief，最终 `awaiting_human_review`、`external_actions=[]`。
+9. 显式空 Key 的 Mock 冒烟生成 `outputs/brand_radar_weekly-mock-20260901-115812-076795.{json,html}`，清楚标记只证明程序链路。
+10. 错误 Key 约 0.9 秒退出码 3，明确失败，产物数保持 28，没有新增 JSON / HTML / tmp，也没有降级 Mock。
+11. HTML 结构检查已确认品牌档案标签、实际技能摘要、四轮决策、单一 Agent 思路区、人工复核和无外部动作提示；应用内浏览器阻止 `file://`，视觉打开仍需本机手工检查。
+12. 当前全量测试数为 100。
+
+上述 `outputs/` 产物均为本机忽略证据，不纳入 Git，也不是跨机器持久交付。交接只提供重建命令，新机器必须重新运行生成。
 
 ## 最小实现方式
 
 沿用现有 Runner，不先重写框架。新增内容保持在少量清楚文件中：
 
 ```text
+BRAND.md                   # 未建档时使用的通用品牌档案
+
+memory/brand/BRAND.md      # 本机定制品牌档案，已忽略，不提交
+
+skills/brand-radar/
+  signal-triage/SKILL.md
+  brand-fit/SKILL.md
+  brief-distillation/SKILL.md
+
 data/replay/coffee-week-2026-09-07/
   manifest.json            # 材料清单、来源、日期和类型
   sources/                 # Replay 正文或摘录
@@ -119,17 +162,19 @@ scenarios/
   brand_radar_weekly.py    # 本场景工具：读材料、合并、排序、生成日历与 Brief
 
 framework/
+  brand_profile.py         # 六问状态机、档案加载与原子保存
   brand_radar_output.py    # 情报卡、日历、关键词、Brief 和运行信息的校验
   brand_radar_report.py    # 从同一 JSON 生成本地 HTML 周会稿
 
 outputs/                   # 本机运行结果，不提交 Git
 ```
 
-同时只做三处小改动：
+在早期 weekly 入口之上，当前还完成了这些小范围扩展：
 
-- 在 `framework/scenario_registry.json` 增加唯一当前场景 `brand_radar_weekly`。
-- 在 `framework/agent_runner.py` 注册新工具来源，并让该场景使用专用结果校验。
-- 在 `run.py` 增加清楚的周企划入口、材料包参数、`--require-api` 验收开关和同源 HTML 生成提示。
+- `framework/brand_profile.py` 提供可复用六问状态机、通用 / 定制档案加载和本机原子保存。
+- `skills/brand-radar/` 提供三个受限营销技能；`framework/agent_runner.py` 负责校验目录并按选择渐进加载正文。
+- `framework/agent_runner.py` 为 weekly 场景记录逐轮技能、调查 / 成稿决定和反馈引用，并继续使用专用结果校验。
+- `run.py` 提供 `--brand-setup`、周企划入口、材料包参数、`--require-api` 验收开关和同源 HTML 生成提示。
 
 旧场景继续留在 Git 历史和现有目录中，但 README 不再把它们当成当前产品入口。等新入口通过真实 API 和 Dashboard 验收后，再单独做物理迁移。
 
@@ -148,6 +193,7 @@ outputs/                   # 本机运行结果，不提交 Git
 ## 一份结果至少包含什么
 
 - 本次观察设置和使用的模型、材料类型。
+- 实际生效的品牌档案模式，以及每轮选择的营销技能和调查 / 成稿决定。
 - 读取成功、读取失败和被排除的材料清单。
 - 版本取舍与冲突说明。
 - 情报卡：事实、优先级、理由、来源、风险和待核项。
@@ -156,7 +202,7 @@ outputs/                   # 本机运行结果，不提交 Git
 - 三条 Brief 与引用卡片。
 - 人工复核项和运行失败原因。
 
-本地 HTML 周会稿直接读取这份结果，不另写静态 Brief。这样 CLI 和页面展示的是同一次 Agent 工作。交互 Dashboard / chat 是下一阶段候选，不是当前 Day 1–2 必须完成项。
+本地 HTML 周会稿直接读取这份结果，不另写静态 Brief。这样 CLI 和页面展示的是同一次 Agent 工作。当前 HTML 会显示品牌档案模式、实际使用技能与逐轮“先想确认什么 → 用了什么能力 → 看到了什么 → 接着怎么决定”；交互 GUI / chat 尚未实现。
 
 当前唯一 canonical 结果是校验通过后原子写入 `outputs/brand_radar_weekly-<mode>-<timestamp>.json` 的 JSON。HTML 周会稿、未来 GUI chat、报告和 Dashboard 都是读取或解释这份 artifact 的入口；当前 CLI 没有 GUI chat、交互 Dashboard、自动刷新或实时抓取。
 
@@ -170,24 +216,26 @@ outputs/                   # 本机运行结果，不提交 Git
 
 ## 开发顺序
 
-1. 先定好观察包和结果样例，人工检查来源、版本、重复项、待核项和三条 Brief 的关系。
-2. 接入 `brand_radar_weekly`，用 Mock 跑一次只确认工具顺序、引用校验和失败处理。
-3. 使用真实测试 Key 跑完整链路，确认模型确实读取材料、选择调查动作、读取反馈并产生随输入变化的结果。
-4. 用关键词、竞品和矛盾材料变化验收路径差异；错误 Key 必须明确失败且不降级 Mock。
-5. 从同一 JSON 生成本地 HTML 周会稿，覆盖重点、Brief、未来 30 天关键节点、关键词、调查理由、来源和人审。
-6. 下一阶段再评估交互 Dashboard / chat，补上筛选、来源展开和采用 / 退回 / 补证操作。
-7. 完成断网、材料缺失和引用错误等剩余异常路径验收。
+1. 已完成观察包、专用结果校验、Mock 冒烟和真实 Key 主链。
+2. 已完成通用 / 定制品牌档案、可跳过六问状态机与三个营销技能。
+3. 已完成逐轮“技能 + 调查 / 成稿”选择、反馈读取、最多三次调查和一次生成修正。
+4. 已从同一 JSON 生成包含品牌起点、实际技能和逐轮思路的本地 HTML 周会稿。
+5. 下一步把现有六问状态机接到轻量 GUI / chat，不另写品牌逻辑或结果事实源。
+6. 用一份真实定制品牌档案复跑默认观察包，验证品牌取舍会合理改变调查路径、优先级和 Brief。
+7. 再完成 HTML 视觉检查、三分钟人工复核和断网等剩余异常路径验收。
 
 详细五天安排见 [开发计划](ROADMAP.md)。
 
 ## 目标命令
 
-以下是当前已支持并已用真实 Key 跑通的验收入口：
+以下是当前两个主要入口：
 
 ```bash
+python3 run.py --brand-setup
+
 python3 run.py --weekly \
   --source-pack data/replay/coffee-week-2026-09-07/manifest.json \
   --require-api
 ```
 
-验收通过时应显示真实 Provider、材料包、输出位置和人工复核提示。若缺少 Key，应在开始处理材料前失败；如果主动去掉 `--require-api`，才允许进入清楚标记的 Mock 烟雾测试。
+建档命令不调用模型，可逐题跳过；尚无本机档案时，跳过建档会使用通用 `BRAND.md`。周企划验收通过时应显示真实 Provider、材料包、输出位置和人工复核提示。若缺少 Key，应在开始处理材料前失败；如果主动去掉 `--require-api`，才允许进入清楚标记的 Mock 烟雾测试。
