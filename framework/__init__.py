@@ -1,9 +1,23 @@
-# Framework package — Agent OS 核心模块
+"""Shared model access; legacy scenario helpers load only when requested."""
+
+from importlib import import_module
+
 from .llm_client import LLMClient
-from .agent_runner import AgentRunner
-from .context_manager import ContextManager
-from .session_summarizer import SessionSummarizer
-from .pain_point_intake import PainPointIntake
+
+_LEGACY = {
+    "AgentRunner": ".agent_runner",
+    "ContextManager": ".context_manager",
+    "SessionSummarizer": ".session_summarizer",
+    "PainPointIntake": ".pain_point_intake",
+}
+
+
+def __getattr__(name):
+    if name not in _LEGACY:
+        raise AttributeError(name)
+    value = getattr(import_module(_LEGACY[name], __name__), name)
+    globals()[name] = value
+    return value
 
 __all__ = [
     "LLMClient",

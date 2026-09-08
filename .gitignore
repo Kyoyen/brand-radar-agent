@@ -13,3 +13,6 @@ venv/
 memory/
 outputs/
 *.log
+node_modules/
+web/dist/
+.env.*.local

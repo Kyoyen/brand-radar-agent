@@ -2,6 +2,7 @@
 Brand Radar Agent — 统一入口
 ==============================
 用法：
+  python run.py --studio
   python run.py "为下周瑞幸咖啡周企划会整理咖啡品类观察"
   python run.py --list
   python run.py --history
@@ -55,15 +56,23 @@ def check_env(require_api: bool = False):
 # ── 子命令处理 ──────────────────────────────────────────────────────────────
 
 def cmd_run(task: str, brand: str = None):
-    from framework import AgentRunner
-    runner = AgentRunner()
-    kwargs = {}
-    if brand:
-        kwargs["brand"] = brand
-    result = runner.run_auto(task, **kwargs)
-    print(f"\n{'='*55}")
-    print("最终输出：")
-    print(result)
+    import threading
+    from studio.agent import run_agent
+    from studio.store import TaskStore
+    store = TaskStore()
+    document = store.create(title=task[:32], question=task, brand=brand or "瑞幸咖啡")
+    store.add_message(document["id"], "user", task)
+    run_agent(document["id"], store, threading.Event())
+    result = store.get(document["id"])
+    print(f"\n企划：{result['title']}")
+    print(f"状态：{result['status']}")
+    if result["error"]:
+        print(result["error"])
+    for message in result["messages"]:
+        if message["role"] == "assistant":
+            print(message["content"])
+    print(f"\n已保存在本机。运行 python run.py --studio 继续这次企划。")
+    return 0 if result["status"] == "idle" else 3
 
 
 def cmd_weekly(source_pack: str, require_api: bool, task: str | None = None) -> int:
@@ -246,10 +255,12 @@ def cmd_intake():
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Brand Radar Agent — 营销 AI Agent 框架",
+        description="Brand Radar — 发现值得追的问题，一起把想法做成企划",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例：
+  python run.py --studio
+  python run.py --studio --port 8765
   python run.py "为下周瑞幸咖啡周企划会整理咖啡品类观察"
   python run.py "生成关于夏日饮品的内容选题" --brand 瑞幸咖啡
   python run.py --list
@@ -259,6 +270,8 @@ def main():
         """,
     )
     parser.add_argument("task", nargs="?", default=None, help="用自然语言描述任务")
+    parser.add_argument("--studio", action="store_true", help="打开本地企划桌面（默认入口）")
+    parser.add_argument("--port", type=int, default=8765, help="企划桌面本机端口，默认 8765")
     parser.add_argument("--brand", default=None, help="指定品牌名称（可选）")
     parser.add_argument("--list",       action="store_true", help="列出所有可用场景")
     parser.add_argument("--roi",        action="store_true", help="显示 ROI 汇总")
@@ -281,6 +294,10 @@ def main():
 
     args = parser.parse_args()
 
+    if args.studio and any((args.task, args.weekly, args.brand_setup, args.list,
+                            args.roi, args.history, args.experience, args.intake)):
+        parser.error("--studio 请单独使用；任务在企划桌面里新建")
+
     if args.require_api and not args.weekly:
         parser.error("--require-api 目前只与 --weekly 一起使用")
     if args.weekly and any((args.list, args.roi, args.history, args.experience, args.intake)):
@@ -302,10 +319,16 @@ def main():
     if args.brand_setup:
         return cmd_brand_setup()
 
-    print("\n🔍 Brand Radar Agent OS")
+    if args.studio or not any((args.task, args.weekly, args.list, args.roi,
+                               args.history, args.experience, args.intake)):
+        from studio.server import serve
+        serve(args.port)
+        return 0
+
+    print("\nBrand Radar · 企划调查搭档")
     print("─" * 40)
 
-    if not check_env(require_api=args.weekly and args.require_api):
+    if not check_env(require_api=(args.weekly and args.require_api) or bool(args.task)):
         return 2
 
     if args.weekly:
@@ -322,7 +345,7 @@ def main():
     elif args.intake:
         cmd_intake()
     elif args.task:
-        cmd_run(args.task, brand=args.brand)
+        return cmd_run(args.task, brand=args.brand)
     else:
         parser.print_help()
     return 0
