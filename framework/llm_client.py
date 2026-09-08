@@ -204,7 +204,7 @@ class LLMClient:
                 return anthropic.Anthropic(api_key=self.api_key, timeout=60.0, max_retries=0)
             except ImportError as exc:
                 raise LLMConfigurationError(
-                    "缺少 anthropic 依赖，无法调用 Anthropic Provider；请先安装 requirements.txt"
+                    "缺少 anthropic 依赖，无法调用 Anthropic Provider；请先运行 pip install anthropic"
                 ) from exc
         try:
             from openai import OpenAI

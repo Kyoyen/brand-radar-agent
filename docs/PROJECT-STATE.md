@@ -27,7 +27,7 @@ Brand Radar 的主入口已变成本地企划桌面：一个单 Agent 围绕用�
 
 ## 运行与开发
 
-按 [README](../README.md) 安装 `requirements-studio.txt`、构建 `web/`，在本机 `.env` 配置真实模型，然后运行：
+按 [README](../README.md) 安装 `requirements.txt`、构建 `web/`，在本机 `.env` 配置真实模型，然后运行：
 
 ```bash
 .venv/bin/python run.py --studio
@@ -40,6 +40,10 @@ Brand Radar 的主入口已变成本地企划桌面：一个单 Agent 围绕用�
 真实桌面截图为 `docs/assets/brand-radar-studio.png`，记录真实模型初稿、多轮反馈和直接编辑后的协作结果，不代表模型一次生成的质量。
 
 本轮 GitHub 同步内容包括企划桌面 Demo、真实截图、主页和 App 方向的路线图，不涉及网页服务部署。本地任务、依赖和模型配置不会随 Git 转移。
+
+## 目录整理
+
+旧 V1 / V2 / V3 独立演示、过期开发计划、旧概念图与重复的跨机交接说明已从 main 移除，历史内容由 Git 保留。仍被旧 CLI 使用的示例工具归入 `scenarios/tools_demo.py`；当前工作流程文档归入 `docs/product/WORKFLOW.md`。默认依赖统一到 `requirements.txt`，旧场景额外依赖在 `scenarios/requirements.txt`。
 
 ## 当前边界
 

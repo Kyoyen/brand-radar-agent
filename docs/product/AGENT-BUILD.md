@@ -28,7 +28,7 @@
 | `data/cases/` | 有出处的研究起点，不含模型预制结论 |
 | `agent/AGENTS.md`、`skills/brand-radar/` | 可继续打磨的专业工作方法 |
 
-复用 `framework/llm_client.py` 的模型接入与 `framework/brand_profile.py` 的品牌读取。旧 Runner 和 `--weekly` 留作兼容，不参与新桌面运行。
+复用 `framework/llm_client.py` 的模型接入与 `framework/brand_profile.py` 的品牌读取。旧 Runner 和 `--weekly` 留作兼容，不参与新桌面运行。旧场景及其示例工具集中在 `scenarios/`，额外依赖按需安装：`pip install -r scenarios/requirements.txt`。默认 `requirements.txt` 只安装当前桌面必需的依赖；使用 Anthropic 时另装 `anthropic`。
 
 ## Agent 如何工作
 
@@ -48,7 +48,7 @@
 
 ```bash
 python3 -m venv .venv
-.venv/bin/python -m pip install -r requirements-studio.txt
+.venv/bin/python -m pip install -r requirements.txt
 cd web
 npm ci
 npm run build

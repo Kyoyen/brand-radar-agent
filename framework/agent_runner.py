@@ -306,7 +306,7 @@ class AgentRunner:
     # ── 工具加载 ──────────────────────────────────────────────────────────────
 
     def _load_tools(self, scenario_id: str, weekly_runtime=None):
-        from v3_agent.tools import TOOLS as base_tools, execute_tool as base_exec
+        from scenarios.tools_demo import TOOLS as base_tools, execute_tool as base_exec
         try:
             from scenarios.tools_extended import EXTENDED_TOOLS, execute_extended_tool
         except ImportError:

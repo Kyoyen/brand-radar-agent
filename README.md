@@ -59,7 +59,7 @@ Brand Radar 把资料、观察和正在形成的创意放在同一张桌面上�
 
 ```bash
 python3 -m venv .venv
-.venv/bin/python -m pip install -r requirements-studio.txt
+.venv/bin/python -m pip install -r requirements.txt
 cd web
 npm ci
 npm run build
@@ -77,11 +77,24 @@ cp -n .env.example .env
 
 品牌资料、任务和 Key 留在本机，不随 Git 上传。外部图片用于研究参考，保留出处；使用前仍需确认适用的使用条件。桌面不自动发消息、发布、投放或调整预算。
 
-## 项目里的几条线
+## 项目结构
+
+| 目录 | 内容 |
+|---|---|
+| `studio/`、`web/` | 当前 Agent 和网页 Demo |
+| `agent/`、`skills/` | Agent 的工作方法与营销技能 |
+| `data/` | 公开研究案例与历史 Replay 材料 |
+| `framework/` | 模型接入、品牌资料与旧 CLI 支持 |
+| `scenarios/` | 保留兼容的历史场景与可选依赖 |
+| `docs/`、`tests/` | 当前产品说明与相关测试 |
+
+旧版本实验、过期计划与概念图已从当前目录移除，需要时可以查阅 Git 历史。
+
+## 进一步了解
 
 当前桌面、Agent 结构和开发方式见 [Agent 打造说明](docs/product/AGENT-BUILD.md)。原有 `--weekly` 咖啡 Replay 周会稿保留为历史回放入口；它不是实时市场监测。
 
 - [产品愿景与使用方式](docs/product/PRD.md)
-- [一次企划怎样推进](docs/business/NEXT-WEEK-WORKFLOW.md)
+- [一次企划怎样推进](docs/product/WORKFLOW.md)
 - [继续打造的方向](docs/product/ROADMAP.md)
 - [当前状态](docs/PROJECT-STATE.md)

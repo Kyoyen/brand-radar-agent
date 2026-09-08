@@ -103,7 +103,7 @@ def execute_real_tool(name: str, args: dict) -> str:
     except ImportError as e:
         return json.dumps({
             "error": f"缺少依赖：{e}",
-            "fix": "pip install -r requirements.txt",
+            "fix": "pip install -r scenarios/requirements.txt",
         }, ensure_ascii=False)
     except Exception as e:
         return json.dumps({
