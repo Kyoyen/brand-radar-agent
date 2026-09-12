@@ -131,6 +131,31 @@ class StudioAgentTests(unittest.TestCase):
         self.assertNotIn("name:", first)
         self.assertIn("下一轮采用修改后的规则", second)
 
+    def test_agent_can_link_same_batch_new_ids_and_preserve_existing_layout(self):
+        first = _execute("update_board", {"cards": [
+            {"id": "brief", "title": "简报", "x": 12, "y": 34},
+            {"id": "action", "kind": "idea", "title": "做法", "x": 420, "y": 34}],
+            "edges": [{"id": "next", "from_id": "brief", "to_id": "action", "label": "下一步"}]},
+            self.task_id, self.store, set())
+        self.assertEqual(["brief", "action"], [card["id"] for card in first["cards"]])
+        self.assertEqual("brief", first["edges"][0]["from_id"])
+        _execute("update_board", {"cards": [{"id": "brief", "body": "修改", "x": 999}],
+                                  "edges": [{"id": "next", "label": "落地"}]},
+                 self.task_id, self.store, {"brief"})
+        self.assertEqual(12, self.store.get(self.task_id)["cards"][0]["x"])
+
+    def test_selected_edit_cannot_rewire_or_delete_unrelated_edges(self):
+        self.store.patch(self.task_id, {"cards": [{"id": "a"}, {"id": "b"}, {"id": "c"}],
+                                       "edges": [{"id": "bc", "from_id": "b", "to_id": "c", "label": "关系"}]})
+        before = self.store.get(self.task_id)
+        for edge_patch in ({"edges": [{"id": "bc", "from_id": "a"}]},
+                           {"remove_edge_ids": ["bc"]},
+                           {"edges": [{"from_id": "b", "to_id": "c", "label": "无关"}]}):
+            with self.assertRaises(ValueError):
+                _execute("update_board", {"cards": [{"id": "a", "body": "不应写入"}], **edge_patch},
+                         self.task_id, self.store, {"a"})
+        self.assertEqual(before, self.store.get(self.task_id))
+
 
 class PublicReaderTests(unittest.TestCase):
     @staticmethod

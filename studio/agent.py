@@ -30,6 +30,8 @@ observation 写观察与解释；idea 写创意假设及具体做法；question 
 用户选中了卡片时，围绕选中的作品改稿，只改或删除选中卡；若需要新支持材料，可新增相关来源或小量支持卡。
 没有选卡时按用户本次请求决定修改范围。kept 表示选定方向，文字仍可继续推敲；位置、保留状态和改稿历史由程序保存。archived 默认不动，除非用户要求继续这个方向。
 修改现有方向必须复用原 card id；只有新方向才新增卡。被修订的旧稿自动留在 revisions，不用新建重复卡来承载改稿。
+可以通过 update_board 的 edges 连接相关卡片，用简短 label 表达依据、推导、下一步或发布顺序等实际关系；不要为了画面强行连线。
+需要在同次更新中连接新卡时，为新卡指定唯一且可读的 id（字母、数字、下划线或短横线），edges 的 from_id/to_id 引用它。新卡的 x/y 可安排分组或流程布局，已有卡的位置由用户控制。
 source_ids 只能引用真实存在的来源 ID。新想法可没有来源，但必须明确它是建议或假设。
 观察卡必须在 source_ids 填入支撑判断的来源 ID，不能只在正文提一句“依据”。如果没有材料支撑，请写成创意假设或待解问题。
 工具失败时说明具体局限并尝试有根据的替代方法。不得把失败、被截断或未读页面当作成功取得的事实。
@@ -64,14 +66,19 @@ TOOLS = [
     _tool("search_web", "检索公开网页，取得真实标题与链接。摘要只是线索，引用前需要打开原文。", {"query": STRING, "limit": {"type": "integer", "minimum": 1, "maximum": 8}}, ["query"]),
     _tool("open_url", "打开公开原文，保存可引用来源并加入来源卡。不能读取本机或内网。", {"url": STRING}, ["url"]),
     _tool("read_source", "按来源 ID 读取已有来源正文，可分段阅读。", {"source_id": STRING, "offset": {"type": "integer", "minimum": 0}}, ["source_id"]),
-    _tool("update_board", "修改现有方向时复用原卡 id，旧稿自动保留历史；只有新方向才省略 id 新增卡。可一次改多张，保留用户位置与采用状态。", {
+    _tool("update_board", "增改卡片和逻辑连线。改稿复用原 id；新卡可指定唯一 id 以便同批连接。保留已有卡位置、采用状态和历史。", {
         "cards": {"type": "array", "maxItems": 12, "items": {"type": "object", "properties": {
             "id": STRING, "kind": {"type": "string", "enum": ["observation", "idea", "question", "note", "calendar"]},
             "title": STRING, "body": STRING,
+            "x": {"type": "number"}, "y": {"type": "number"},
             "source_ids": {"type": "array", "items": STRING},
             "color": {"type": "string", "enum": ["cream", "sage", "rose", "lavender", "sand"]},
         }, "additionalProperties": False}},
         "remove_ids": {"type": "array", "items": STRING},
+        "edges": {"type": "array", "maxItems": 40, "items": {"type": "object", "properties": {
+            "id": STRING, "from_id": STRING, "to_id": STRING, "label": STRING,
+        }, "additionalProperties": False}},
+        "remove_edge_ids": {"type": "array", "items": STRING},
     }, ["cards"]),
     _tool("finish", "本次工作明确完成后调用。可以没有新卡，说明实际结果与具体局限；这会结束本轮协作。", {"summary": STRING}, ["summary"]),
 ]
@@ -82,6 +89,7 @@ def _context(task: dict) -> dict:
     return {
         "title": task.get("title"), "question": task.get("question"), "brand": task.get("brand"),
         "brand_context": task.get("brand_context", ""),
+        "edges": task.get("edges", []),
         "sources": [{key: source.get(key) for key in ("id", "title", "url", "excerpt", "origin", "published_at", "truncated")} for source in task.get("sources", [])],
         "cards": [{key: card.get(key) for key in ("id", "kind", "title", "body", "source_ids", "status")} for card in task.get("cards", [])],
         "conversation": [{key: message.get(key) for key in ("role", "content", "selected_card_ids")} for message in task.get("messages", [])[-16:]],
@@ -167,15 +175,32 @@ def _execute(name: str, arguments: dict, task_id: str, store, selected_ids: set[
             previous = existing.get(card.get("id"), {})
             if card.get("kind", previous.get("kind")) == "observation" and not card.get("source_ids", previous.get("source_ids")):
                 raise ValueError("观察卡需要在 source_ids 附上支撑判断的真实来源。缺少支持时应写成 idea 假设或 question 待解问题。")
-            if card.get("id") and card["id"] not in existing:
-                # Explicit IDs are allowed for newly-created cards, but not a way to
-                # overwrite or bypass the user's current selected-card scope.
-                card["id"] = "card-" + uuid.uuid4().hex[:12]
-        allowed = {"id", "kind", "title", "body", "source_ids", "color"}
+        edges, remove_edge_ids = arguments.get("edges", []), arguments.get("remove_edge_ids", [])
+        if not isinstance(edges, list) or any(not isinstance(edge, dict) for edge in edges) or not isinstance(remove_edge_ids, list) or any(not isinstance(edge_id, str) for edge_id in remove_edge_ids):
+            raise ValueError("edges 需要连线对象数组，remove_edge_ids 需要 ID 数组。")
+        if selected_ids:
+            previous_edges = {edge["id"]: edge for edge in task.get("edges", [])}
+            new_card_ids = {card.get("id") for card in cards if card.get("id") and card.get("id") not in existing}
+            scope = selected_ids | new_card_ids
+            for edge in edges:
+                previous = previous_edges.get(edge.get("id"), {})
+                # A relation can touch an unselected support card, but changing an
+                # unrelated existing relation is outside a selected revision.
+                if previous and not ({previous["from_id"], previous["to_id"]} & selected_ids):
+                    raise ValueError("本轮只能修改与选中卡片相关的连线。")
+                endpoints = {edge.get(key, previous.get(key)) for key in ("from_id", "to_id")}
+                if not endpoints & scope:
+                    raise ValueError("本轮新增或修改的连线需要关联选中作品或本次支持卡。")
+            for edge_id in remove_edge_ids:
+                previous = previous_edges.get(edge_id)
+                if previous and not ({previous["from_id"], previous["to_id"]} & selected_ids):
+                    raise ValueError("本轮只能移除与选中卡片相关的连线。")
+        allowed = {"id", "kind", "title", "body", "source_ids", "color", "x", "y"}
         cleaned = [{key: value for key, value in card.items() if key in allowed} for card in cards]
-        store.upsert_cards(task_id, cleaned, remove_ids=remove_ids)
+        store.upsert_cards(task_id, cleaned, remove_ids=remove_ids, edges=edges, remove_edge_ids=remove_edge_ids)
         store.emit(task_id, "已更新画布", f"修改或新增 {len(cards)} 张，移除 {len(remove_ids)} 张")
-        return {"saved": True, "cards": [{key: card.get(key) for key in ("id", "kind", "title", "source_ids", "status")} for card in store.get(task_id).get("cards", [])]}
+        saved = store.get(task_id)
+        return {"saved": True, "cards": [{key: card.get(key) for key in ("id", "kind", "title", "source_ids", "status")} for card in saved.get("cards", [])], "edges": saved.get("edges", [])}
     raise ValueError("这个工具不可用；请使用提供的工具。")
 
 

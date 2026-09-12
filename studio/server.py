@@ -6,6 +6,11 @@ import argparse
 import json
 import mimetypes
 import os
+import re
+import secrets
+import socket
+import subprocess
+import sys
 import threading
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -19,6 +24,60 @@ from studio.store import ROOT, TaskStore, now, uid
 
 load_dotenv(ROOT / ".env")
 MAX_BODY = 2_000_000
+
+
+class PairingRequired(PermissionError):
+    pass
+
+
+def phone_pairing(root: Path, port: int) -> dict:
+    """Keep one revocable device credential in the ignored local output folder."""
+    path = root / "phone-pairing.json"
+    token = None
+    if path.exists():
+        try:
+            saved = json.loads(path.read_text(encoding="utf-8"))
+            candidate = saved.get("token")
+            if isinstance(candidate, str) and len(candidate) >= 32:
+                token = candidate
+        except (OSError, ValueError):
+            pass
+    addresses = set()
+    # macOS may route default traffic into a VPN. Prefer the physical interfaces
+    # the phone can reach, and avoid waiting for a .local hostname DNS lookup.
+    if sys.platform == "darwin":
+        try:
+            interfaces = subprocess.run(["/sbin/ifconfig"], capture_output=True, text=True, timeout=2, check=True).stdout
+            interface = ""
+            for line in interfaces.splitlines():
+                if line and not line[0].isspace():
+                    interface = line.split(":", 1)[0]
+                match = re.search(r"\binet (\d+\.\d+\.\d+\.\d+)\b", line)
+                if interface.startswith("en") and match:
+                    addresses.add(match.group(1))
+        except (OSError, subprocess.SubprocessError):
+            pass
+    # Determine the default interface without sending a packet to this address.
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+            probe.connect(("192.0.2.1", 9))
+            if not addresses:
+                addresses.add(probe.getsockname()[0])
+    except OSError:
+        pass
+    addresses = sorted(address for address in addresses if not address.startswith("127.") and address != "0.0.0.0")
+    pairing = {"token": token or secrets.token_urlsafe(32), "port": port,
+               "urls": [f"http://{address}:{port}" for address in addresses], "scheme": "brandradar"}
+    root.mkdir(parents=True, exist_ok=True)
+    temporary = root / f".phone-pairing-{secrets.token_hex(6)}.tmp"
+    try:
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as output:
+            json.dump(pairing, output, ensure_ascii=False, indent=2)
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return pairing
 
 
 def read_cases() -> list[dict]:
@@ -110,6 +169,14 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
 
     def _local_request(self):
+        if getattr(self.server, "phone_mode", False):
+            authorization = self.headers.get("Authorization", "")
+            expected = "Bearer " + self.server.phone_token
+            if not secrets.compare_digest(authorization.encode(), expected.encode()):
+                raise PairingRequired("请在 iPhone 中填写这台 Mac 的配对码")
+            if self.headers.get("Origin") or self.headers.get("Sec-Fetch-Site") == "cross-site":
+                raise PermissionError("手机连接只接受配对后的 App 请求")
+            return
         host = urlsplit("http://" + self.headers.get("Host", "")).hostname
         if host not in {"127.0.0.1", "localhost", "::1"}:
             raise PermissionError("企划桌面仅接受本机访问")
@@ -143,7 +210,8 @@ class Handler(BaseHTTPRequestHandler):
         store = self.app.store
         method = self.command
         if method == "GET" and path == "/api/status":
-            self._send(connection_status() | {"running_task_ids": [item["id"] for item in store.list() if item["status"] == "running"]})
+            self._send(connection_status() | {"phone_mode": bool(getattr(self.server, "phone_mode", False)),
+                                             "running_task_ids": [item["id"] for item in store.list() if item["status"] == "running"]})
         elif method == "GET" and path == "/api/cases":
             self._send({"cases": [{key: case.get(key) for key in ("id", "title", "description", "question", "brand")}
                                   for case in read_cases()]})
@@ -252,6 +320,8 @@ class Handler(BaseHTTPRequestHandler):
             pass
         except KeyError as exc:
             self._send({"error": str(exc).strip("'")}, 404)
+        except PairingRequired as exc:
+            self._send({"error": str(exc)}, 401)
         except PermissionError as exc:
             self._send({"error": str(exc)}, 403)
         except ValueError as exc:
@@ -269,11 +339,18 @@ class Handler(BaseHTTPRequestHandler):
     do_PUT = _handle
 
 
-def serve(port: int = 8765):
+def serve(port: int = 8765, *, phone: bool = False):
     app = Studio()
-    server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    server = ThreadingHTTPServer(("0.0.0.0" if phone else "127.0.0.1", port), Handler)
     server.app = app
-    print(f"\nBrand Radar · 你的企划桌面\nhttp://127.0.0.1:{port}\n", flush=True)
+    server.phone_mode = phone
+    if phone:
+        pairing = phone_pairing(app.store.root, server.server_port)
+        server.phone_token = pairing["token"]
+        print(f"\nBrand Radar · iPhone 连接已开启\n配对文件：{app.store.root / 'phone-pairing.json'}\n"
+              + "\n".join(pairing["urls"]) + "\n所有请求均需配对码。\n", flush=True)
+    else:
+        print(f"\nBrand Radar · 你的企划桌面\nhttp://127.0.0.1:{server.server_port}\n", flush=True)
     try:
         server.serve_forever(poll_interval=.3)
     except KeyboardInterrupt:
@@ -286,8 +363,9 @@ def serve(port: int = 8765):
 def main():
     parser = argparse.ArgumentParser(description="Brand Radar · 本地企划桌面")
     parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--phone", action="store_true", help="允许已配对的 iPhone 通过局域网连接")
     args = parser.parse_args()
-    serve(args.port)
+    serve(args.port, phone=args.phone)
 
 
 if __name__ == "__main__":

@@ -62,7 +62,9 @@ class TaskStore:
     def get(self, task_id: str) -> dict:
         with self.lock:
             try:
-                return json.loads(self.path(task_id).read_text(encoding="utf-8"))
+                task = json.loads(self.path(task_id).read_text(encoding="utf-8"))
+                task.setdefault("edges", [])
+                return task
             except FileNotFoundError as exc:
                 raise KeyError("找不到这次企划") from exc
 
@@ -88,7 +90,7 @@ class TaskStore:
             "question": question[:16000], "brand": brand[:100],
             "brand_context": brand_context[:24000], "case_id": case_id,
             "created_at": timestamp, "updated_at": timestamp,
-            "status": "idle", "sources": [], "cards": [], "messages": [],
+            "status": "idle", "sources": [], "cards": [], "edges": [], "messages": [],
             "activity": [], "viewport": {"x": 0, "y": 0, "zoom": 1},
             "error": None, "model": None, "run_id": None,
         }
@@ -155,58 +157,101 @@ class TaskStore:
             self.mutate(task_id, update)
             return copy.deepcopy(record)
 
-    def upsert_cards(self, task_id: str, cards: list[dict], remove_ids: list[str] | None = None) -> dict:
+    def upsert_cards(self, task_id: str, cards: list[dict], remove_ids: list[str] | None = None,
+                     *, edges: list[dict] | None = None, remove_edge_ids: list[str] | None = None) -> dict:
+        def update(task):
+            self._upsert_cards(task, cards, remove_ids)
+            self._upsert_edges(task, edges if edges is not None else [],
+                               remove_edge_ids if remove_edge_ids is not None else [])
+        return self.mutate(task_id, update)
+
+    @staticmethod
+    def _upsert_cards(task: dict, cards: list[dict], remove_ids: list[str] | None = None):
         if not isinstance(cards, list) or len(cards) > 40:
             raise ValueError("一次请更新不超过 40 张卡片")
-        def update(task):
-            known_sources = {source["id"] for source in task["sources"]}
-            for incoming in cards:
-                if not isinstance(incoming, dict):
-                    raise ValueError("卡片内容应是一个对象")
-                card_id = str(incoming.get("id") or uid("card"))
-                existing = next((item for item in task["cards"] if item["id"] == card_id), None)
-                kind = incoming.get("kind", existing["kind"] if existing else "note")
-                if kind not in KINDS:
-                    raise ValueError("不支持的卡片类型")
-                refs = incoming.get("source_ids", existing.get("source_ids", []) if existing else [])
-                if not isinstance(refs, list) or any(not isinstance(ref, str) or ref not in known_sources for ref in refs):
-                    raise ValueError("卡片引用了尚未加入桌面的来源，请先读取该来源")
-                if kind == "source" and not refs:
-                    raise ValueError("来源卡需要实际材料")
-                if existing:
-                    record = dict(existing)
-                    content_changed = any(key in incoming and incoming[key] != existing.get(key)
-                                          for key in ("title", "body", "source_ids"))
-                    if content_changed:
-                        record["revisions"] = list(existing.get("revisions", [])) + [
-                            {key: existing.get(key) for key in ("title", "body", "source_ids", "updated_at")}
-                        ]
-                else:
-                    column = COLUMN[kind]
-                    same_column = [item for item in task["cards"] if
-                                   COLUMN.get(item["kind"]) == column]
-                    record = {"id": card_id, "x": 32 + column * 360, "y": 64 + len(same_column) * 420,
-                              "width": 320, "status": "draft"}
-                record.update({
-                    "kind": kind, "title": str(incoming.get("title", record.get("title", "")))[:240],
-                    "body": str(incoming.get("body", record.get("body", "")))[:16000],
-                    "source_ids": list(dict.fromkeys(refs)), "updated_at": now(),
-                    "color": incoming.get("color", record.get("color", "cream")),
-                })
-                if record["color"] not in COLORS:
-                    record["color"] = "cream"
-                if existing:
-                    # Model edits preserve user placement and adoption decisions.
-                    index = task["cards"].index(existing)
-                    task["cards"][index] = record
-                else:
-                    task["cards"].append(record)
-            # Archive rather than destroy a direction, keeping its history readable.
-            for card in task["cards"]:
-                if card["id"] in (remove_ids or []):
-                    card["status"] = "archived"
-                    card["updated_at"] = now()
-        return self.mutate(task_id, update)
+        remove_ids = remove_ids if remove_ids is not None else []
+        if not isinstance(remove_ids, list) or any(not isinstance(item, str) for item in remove_ids):
+            raise ValueError("移除卡片需要 ID 数组")
+        # The caller saves the whole document only after cards and edges validate.
+        known_sources = {source["id"] for source in task["sources"]}
+        for incoming in cards:
+            if not isinstance(incoming, dict):
+                raise ValueError("卡片内容应是一个对象")
+            card_id = incoming.get("id") or uid("card")
+            if not isinstance(card_id, str) or not re.fullmatch(r"[a-zA-Z0-9_-]{1,100}", card_id):
+                raise ValueError("卡片 ID 只能包含字母、数字、下划线和短横线，最长 100 字符")
+            existing = next((item for item in task["cards"] if item["id"] == card_id), None)
+            kind = incoming.get("kind", existing["kind"] if existing else "note")
+            if kind not in KINDS:
+                raise ValueError("不支持的卡片类型")
+            refs = incoming.get("source_ids", existing.get("source_ids", []) if existing else [])
+            if not isinstance(refs, list) or any(not isinstance(ref, str) or ref not in known_sources for ref in refs):
+                raise ValueError("卡片引用了尚未加入桌面的来源，请先读取该来源")
+            if kind == "source" and not refs:
+                raise ValueError("来源卡需要实际材料")
+            if existing:
+                record = dict(existing)
+                content_changed = any(key in incoming and incoming[key] != existing.get(key)
+                                      for key in ("title", "body", "source_ids"))
+                if content_changed:
+                    record["revisions"] = list(existing.get("revisions", [])) + [
+                        {key: existing.get(key) for key in ("title", "body", "source_ids", "updated_at")}
+                    ]
+            else:
+                column = COLUMN[kind]
+                same_column = [item for item in task["cards"] if
+                               COLUMN.get(item["kind"]) == column]
+                record = {"id": card_id, "x": 32 + column * 360, "y": 64 + len(same_column) * 420,
+                          "width": 320, "status": "draft"}
+                for key in ("x", "y"):
+                    if key in incoming:
+                        record[key] = finite(incoming[key], record[key])
+            record.update({
+                "kind": kind, "title": str(incoming.get("title", record.get("title", "")))[:240],
+                "body": str(incoming.get("body", record.get("body", "")))[:16000],
+                "source_ids": list(dict.fromkeys(refs)), "updated_at": now(),
+                "color": incoming.get("color", record.get("color", "cream")),
+            })
+            if record["color"] not in COLORS:
+                record["color"] = "cream"
+            if existing:
+                # Model edits preserve user placement and adoption decisions.
+                index = task["cards"].index(existing)
+                task["cards"][index] = record
+            else:
+                task["cards"].append(record)
+        # Archive rather than destroy a direction, keeping its history readable.
+        for card in task["cards"]:
+            if card["id"] in (remove_ids or []):
+                card["status"] = "archived"
+                card["updated_at"] = now()
+
+    @staticmethod
+    def _upsert_edges(task: dict, edges: list[dict], remove_ids: list[str]):
+        if not isinstance(edges, list) or len(edges) > 100:
+            raise ValueError("一次请更新不超过 100 条连线")
+        if not isinstance(remove_ids, list) or any(not isinstance(item, str) for item in remove_ids):
+            raise ValueError("移除连线需要 ID 数组")
+        known_cards = {card["id"] for card in task["cards"]}
+        task.setdefault("edges", [])
+        for incoming in edges:
+            if not isinstance(incoming, dict):
+                raise ValueError("连线需要对象")
+            edge_id = incoming.get("id") or uid("edge")
+            if not isinstance(edge_id, str) or not re.fullmatch(r"[a-zA-Z0-9_-]{1,100}", edge_id):
+                raise ValueError("连线 ID 格式不正确")
+            previous = next((edge for edge in task["edges"] if edge["id"] == edge_id), {})
+            record = {key: incoming.get(key, previous.get(key, "")) for key in ("from_id", "to_id", "label")}
+            if any(not isinstance(record[key], str) or record[key] not in known_cards for key in ("from_id", "to_id")):
+                raise ValueError("连线两端必须是画布已有或本次新增的卡片 ID")
+            if record["from_id"] == record["to_id"]:
+                raise ValueError("请连接两张不同的卡片")
+            record.update(id=edge_id, label=str(record["label"])[:160])
+            if previous:
+                task["edges"][task["edges"].index(previous)] = record
+            else:
+                task["edges"].append(record)
+        task["edges"] = [edge for edge in task["edges"] if edge["id"] not in remove_ids]
 
     def patch(self, task_id: str, patch: dict) -> dict:
         def update(task):
@@ -224,16 +269,14 @@ class TaskStore:
                     "zoom": finite(viewport.get("zoom"), 1, .2, 2),
                 }
             if "cards" in patch:
-                if not isinstance(patch["cards"], list):
+                incoming_cards = patch["cards"]
+                if not isinstance(incoming_cards, list) or any(not isinstance(card, dict) for card in incoming_cards):
                     raise ValueError("卡片更新格式不正确")
-                for incoming in patch["cards"]:
+                incoming_cards = [{**card, "id": card.get("id") or uid("card")} for card in incoming_cards]
+                self._upsert_cards(task, incoming_cards)
+                for incoming in incoming_cards:
+                    # IDs are assigned before applying human position/status edits.
                     card = next((item for item in task["cards"] if item["id"] == incoming.get("id")), None)
-                    if not card:
-                        raise ValueError("找不到要修改的卡片")
-                    if any(key in incoming and str(incoming[key]) != card.get(key) for key in ("title", "body")):
-                        card.setdefault("revisions", []).append(
-                            {key: card.get(key) for key in ("title", "body", "source_ids", "updated_at")}
-                        )
                     if "status" in incoming:
                         if incoming["status"] not in CARD_STATUSES:
                             raise ValueError("卡片状态不正确")
@@ -243,10 +286,8 @@ class TaskStore:
                             card[key] = finite(incoming[key], card[key])
                     if "width" in incoming:
                         card["width"] = finite(incoming["width"], 320, 240, 700)
-                    for key, length in (("title", 240), ("body", 16000)):
-                        if key in incoming:
-                            card[key] = str(incoming[key])[:length]
                     card["updated_at"] = now()
+            self._upsert_edges(task, patch.get("edges", []), patch.get("remove_edge_ids", []))
         return self.mutate(task_id, update)
 
     def recover_interrupted(self):

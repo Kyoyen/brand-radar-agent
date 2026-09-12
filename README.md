@@ -1,12 +1,19 @@
 <h1 align="center">Brand Radar</h1>
+<p align="center"><strong>把想法说出来，看见它长成一张图。</strong></p>
+<p align="center">Brand Radar Mobile · 一块可以边聊边改的无限画布</p>
 
-<p align="center"><strong>发现值得追的问题，一起把想法做成企划。</strong></p>
-<p align="center">把材料摊开，让观察和想法慢慢长成作品</p>
+<p align="center">
+  <img src="docs/assets/mobile/canvas.png" width="230" alt="无限画布：节点、分组和关系" />
+  <img src="docs/assets/mobile/content.png" width="230" alt="清单和表格混排" />
+  <img src="docs/assets/mobile/drawing.png" width="230" alt="原生手绘与撤销重做" />
+</p>
+<p align="center"><sub>原生 iPhone App 模拟器实拍 · 示例内容</sub></p>
 
-![Brand Radar 企划桌面](docs/assets/brand-radar-studio.png)
-<p align="center"><sub>当前网页 Demo 实拍，用来探索企划桌面的交互。图中作品经过真实模型调查、多轮反馈与直接改稿。</sub></p>
+**边说边成图。** 按住口述，让想法逐步形成节点、分支和连线。松手保留，选中继续改；文字、图片、手绘、清单和表格，都能放回它们所属的关系里。
 
-**正在打造一款可以安装、随时打开的企划 App。** 当前仓库提供可在本地运行的网页 Demo，展示 Agent 与人一起工作的方式；它仍是产品形态的探索，尚未提供 App 安装包或在线服务。后续会保留网页端，现在优先把 App 和企划体验做好，不急着上线。
+**[认识移动端 →](docs/mobile/README.md)**　[用 Xcode 安装](ios/README.md)　[验收记录](ios/docs/REALTIME-ACCEPTANCE.md)
+
+原生 SwiftUI / UIKit，无需注册，本机保存；通过配置的 Agent API 整理内容。当前为源码预览版，尚未上架 App Store。网页企划桌面继续保留，支持公开资料调查和多轮共同改稿。
 
 ## 好企划，往往从一句“等一下”开始
 
@@ -16,7 +23,11 @@ Brand Radar 把资料、观察和正在形成的创意放在同一张桌面上�
 
 不必每次生成一份完整周报，也不必为了交差凑齐三个想法。
 
-## 现在的 Demo，可以一起做些什么
+## 桌面端：调查与共同改稿
+
+![Brand Radar 企划桌面](docs/assets/brand-radar-studio.png)
+
+<sub>网页 Demo 实拍。图中作品经过真实模型调查、多轮反馈与直接改稿。</sub>
 
 | 调查 | 一起推敲 |
 |---|---|
@@ -45,11 +56,11 @@ Brand Radar 把资料、观察和正在形成的创意放在同一张桌面上�
 
 我们也用真实作品和人的修改继续打磨它：资料太薄就改善取材，判断太泛就补品牌案例，改稿没改到做法就改善工作方法。
 
-## 接下来，把它变成日常会打开的 App
+## 继续打磨日常会打开的画布
 
 想做成的体验很简单：打开 App，就是上次还没想完的那张桌面。放进新材料，接着聊几句，把一条观察推进成有表达、有具体做法的企划。品牌的取舍和做过的作品，也在一次次合作中积累。
 
-接下来沿着两件事继续：用真实企划打磨 Agent 的眼光与改稿能力；把启动、模型连接和作品保存收进 App，让使用者不用先配置一套开发环境。网页端会继续作为另一种入口，具体上线时间不预设。
+原生移动端已加入这个方向。接下来继续用真实企划检验整理和改稿能力，打磨连续口述与触摸操作。网页端继续作为另一种入口，具体上线时间不预设。
 
 详见 [Roadmap：从网页 Demo 到企划 App](docs/product/ROADMAP.md)。
 
@@ -82,6 +93,7 @@ cp -n .env.example .env
 | 目录 | 内容 |
 |---|---|
 | `studio/`、`web/` | 当前 Agent 和网页 Demo |
+| `ios/` | 原生 iPhone 无限画布、对话与语音输入 |
 | `agent/`、`skills/` | Agent 的工作方法与营销技能 |
 | `data/` | 公开研究案例与历史 Replay 材料 |
 | `framework/` | 模型接入、品牌资料与旧 CLI 支持 |
