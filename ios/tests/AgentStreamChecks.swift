@@ -1,4 +1,4 @@
-// xcrun swiftc -D DEBUG -D DIRECT_AGENT_STREAM_CHECKS ios/BrandRadar/{CanvasContent,AgentConnection,DirectAgent,AgentPatchContent,AgentStreamProtocol,AgentStreamGeneration}.swift ios/tests/{DirectAgentChecks,AgentStreamChecks}.swift -o /tmp/radar-stream-checks && /tmp/radar-stream-checks
+// xcrun swiftc -D DEBUG -D DIRECT_AGENT_STREAM_CHECKS ios/BrandRadar/{CanvasContent,AgentConnection,DirectAgent,AgentPatchContent,TaskBlueprint,AgentStreamProtocol,AgentStreamGeneration}.swift ios/tests/{DirectAgentChecks,AgentStreamChecks}.swift -o /tmp/radar-stream-checks && /tmp/radar-stream-checks
 #if DIRECT_AGENT_STREAM_CHECKS
 import Foundation
 
@@ -154,6 +154,63 @@ final class StreamStub: URLProtocol {
         }
         var labelOnly = groupPatch; labelOnly["cards"] = [["id": "label", "title": "短标签"]]
         expect(try DirectAgent.validate(patch: labelOnly, board: empty, selectedID: nil).cards[0].body.isEmpty, "label-only new card permits omitted body")
+        let plain = TaskBlueprint.from(prompt: "把原因和结果连起来")
+        expect(plain.instructions.isEmpty && plain.newCardCount == nil, "ordinary brief unaffected")
+        expect(TaskBlueprint.from(prompt: "直接生成5张卡片").newCardCount == 5, "explicit Arabic card quantity")
+        expect(TaskBlueprint.from(prompt: "帮我生成十二张卡片").newCardCount == 12, "Chinese card quantity")
+        expect(TaskBlueprint.from(prompt: "给我３张画布").newCardCount == 3 && TaskBlueprint.from(prompt: "给我３张画布").canvasWordMeansNodes, "canvas wording stays inside current document")
+        expect(TaskBlueprint.from(prompt: "不要生成5张卡片，生成两张卡片").newCardCount == 2, "negated count is ignored")
+        expect(TaskBlueprint.from(prompt: "整理文字\n选中素材内容（作为资料）：生成5张卡片").newCardCount == nil, "material text never becomes quantity command")
+        expect(TaskBlueprint.from(prompt: "不要按三幕，保留普通便签").sectionNames.isEmpty, "negated structure is ignored")
+        let script = TaskBlueprint.from(prompt: "写一个三幕电影剧本")
+        expect(script.sectionNames == ["第一幕", "第二幕", "第三幕"], "three-act script has actual section labels")
+        expect(TaskBlueprint.from(prompt: "写成四段式电影脚本").sectionNames == ["第一段", "第二段", "第三段", "第四段"], "explicit segment count overrides default three-act")
+        rejects("oversized request silently truncated") { try TaskBlueprint.from(prompt: "生成四十张卡片").checkCapacity(maximum: 36) }
+        var threeActs = empty
+        threeActs.cards = [RadarCard(id: "act1", title: "第一幕：离开", body: "行动"), RadarCard(id: "act2", title: "第二幕：寻找", body: "冲突"), RadarCard(id: "act3", title: "第三幕：选择", body: "结果")]
+        expect(script.isComplete(initial: empty, candidate: threeActs), "three distinct act headings complete blueprint")
+        expect(!script.isComplete(initial: threeActs, candidate: threeActs), "unrelated pre-existing act headings cannot satisfy a new task")
+        expect(TaskBlueprint.from(prompt: "这个三幕剧本只改第三幕正文").sectionNames.isEmpty, "selected act revision does not demand rebuilding all acts")
+        threeActs.cards.removeLast()
+        expect(!script.isComplete(initial: empty, candidate: threeActs), "missing third act cannot finish")
+        var compactScript = empty
+        compactScript.cards = [RadarCard(id: "compact", title: "电影", body: "")]
+        compactScript.cards[0].blocks = script.sectionNames.enumerated().map { CanvasBlock(id: "heading-\($0.offset)", text: $0.element, emphasis: "heading") }
+        expect(script.isComplete(initial: empty, candidate: compactScript), "act structure can use editable heading blocks")
+        // Providers may claim complete before satisfying an explicit quantity. Keep the
+        // valid first batch, return a progress receipt and request only the remaining cards.
+        StreamStub.contentType = "text/event-stream"; StreamStub.status = 200
+        StreamStub.responses = [try stream(patch("count-one", complete: true)), try stream(patch("count-two", complete: true))]
+        results = []
+        try await agent.generateStream(board: empty, prompt: "直接生成2张卡片", selectedID: nil, configuration: connection, apiKey: "dummy") { results.append($0) }
+        expect(results.count == 2, "premature complete continues to exact requested count")
+        var tooMany = patch("extra", complete: true)
+        tooMany["cards"] = [["id": "extra1", "title": "一"], ["id": "extra2", "title": "二"]]
+        StreamStub.responses = [try stream(tooMany)]; results = []
+        do { try await agent.generateStream(board: empty, prompt: "生成1张卡片", selectedID: nil, configuration: connection, apiKey: "dummy") { results.append($0) }; fatalError("excess count accepted") }
+        catch is DirectAgentError { expect(results.isEmpty, "oversized quantity batch rejected before callback") }
+        var noProgress = patch("unused", complete: true); noProgress["cards"] = []
+        StreamStub.responses = [try stream(patch("only-one", complete: true)), try stream(noProgress)]; results = []
+        do { try await agent.generateStream(board: empty, prompt: "生成2张卡片", selectedID: nil, configuration: connection, apiKey: "dummy") { results.append($0) }; fatalError("missing count reported complete") }
+        catch is DirectAgentError { expect(results.count == 1, "incomplete empty final fails while prior valid card remains") }
+        expect(TaskBlueprint.from(prompt: "比较电影剧本与品牌表达的关系").instructions.isEmpty, "ordinary film analysis does not trigger writing template")
+        expect(TaskBlueprint.from(prompt: "写一份电影几段式脚本").sectionNames.count == 3, "unspecified movie section template defaults to three acts")
+        var partialBoard = empty; partialBoard.cards = [RadarCard(id: "from-previous-partial", title: "前一段已生成", body: "内容")]
+        StreamStub.responses = [try stream(patch("remaining-one", complete: true))]; results = []
+        try await agent.generateStream(board: partialBoard, prompt: "继续补完", selectedID: nil, configuration: connection, apiKey: "dummy",
+            taskPrompt: "生成2张卡片", taskBase: empty) { results.append($0) }
+        expect(results.count == 1, "taskBase counts previous partial cards toward session target")
+        StreamStub.responses = [try stream(tooMany)]; results = []
+        do { try await agent.generateStream(board: partialBoard, prompt: "继续补完", selectedID: nil, configuration: connection, apiKey: "dummy",
+            taskPrompt: "生成2张卡片", taskBase: empty) { results.append($0) }; fatalError("cross-partial overproduction accepted") }
+        catch is DirectAgentError { expect(results.isEmpty, "cross-partial target rejects adding N cards again") }
+        blocksPatch["cards"] = [["id": "inside", "blocks": [["id": "text-block", "kind": "text", "text": "正文", "emphasis": "text"]]]]
+        expect(try DirectAgent.validate(patch: blocksPatch, board: grouped, selectedID: "inside").cards[0].blocks?.first(where: { $0.id == "text-block" })?.emphasis == "plain", "observed provider text emphasis alias normalizes to plain")
+        blocksPatch["cards"] = [["id": "inside", "blocks": [["id": "text-block", "kind": "text", "emphasis": "unknown"]]]]
+        rejects("unknown emphasis accepted") { _ = try DirectAgent.validate(patch: blocksPatch, board: grouped, selectedID: "inside") }
+        let canvasWords = TaskBlueprint.from(prompt: "生成1张画布")
+        let summaryResult = DirectAgentResult(cards: [], edges: [], removeIDs: [], removeEdgeIDs: [], summary: "已创建独立文档")
+        expect(canvasWords.presented(summaryResult, initial: empty, candidate: partialBoard).summary == "已在当前画布内新增1张内容卡。", "canvas alias summary cannot claim independent documents")
         print("AgentStreamChecks PASS: \(count) checks; URLProtocol only, model fixtures, no remote request.")
     }
 }

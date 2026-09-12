@@ -264,7 +264,7 @@ struct ChatSheet: View {
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() }.accessibilityIdentifier("closeChatButton") } }
         }
         .onAppear { input = store.current.composerDraft ?? "" }
-        .onChange(of: input) { _, text in store.update { $0.composerDraft = text } }
+        .onChange(of: input) { _, text in store.setComposerDraft(text) }
         .onChange(of: speech.transcript) { _, text in input = speechPrefix + text }
         .onDisappear { speech.stop() }
         .onChange(of: scenePhase) { _, phase in if phase == .background { speech.stop() } }

@@ -1,8 +1,8 @@
 // Standalone checks for the production AgentConnection/DirectAgent implementation.
-// Run: xcrun swiftc -D DEBUG -D DIRECT_AGENT_CHECKS ios/BrandRadar/{CanvasContent,AgentConnection,DirectAgent,AgentPatchContent}.swift ios/tests/DirectAgentChecks.swift -o /tmp/radar-direct-agent-checks && /tmp/radar-direct-agent-checks
+// Run: xcrun swiftc -D DEBUG -D DIRECT_AGENT_CHECKS ios/BrandRadar/{CanvasContent,AgentConnection,DirectAgent,AgentPatchContent,TaskBlueprint}.swift ios/tests/DirectAgentChecks.swift -o /tmp/radar-direct-agent-checks && /tmp/radar-direct-agent-checks
 // Foundation-only model fixtures let these network checks run without a simulator.
 // The same production files are also typechecked with the actual Models.swift for iOS.
-#if DIRECT_AGENT_CHECKS || DIRECT_AGENT_LIVE_CHECK || DIRECT_AGENT_STREAM_CHECKS || DIRECT_AGENT_STREAM_LIVE_CHECK
+#if DIRECT_AGENT_CHECKS || DIRECT_AGENT_LIVE_CHECK || DIRECT_AGENT_STREAM_CHECKS || DIRECT_AGENT_STREAM_LIVE_CHECK || DIRECT_AGENT_BLUEPRINT_LIVE_CHECK
 import Foundation
 
 struct RadarCard: Equatable {

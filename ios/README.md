@@ -80,12 +80,12 @@ UI tests 使用 `--uitesting` / `--uitesting-restore` 启动参数，独立于�
 
 ```bash
 xcrun swiftc -D DEBUG -D DIRECT_AGENT_CHECKS \
-  ios/BrandRadar/{CanvasContent,AgentConnection,DirectAgent,AgentPatchContent}.swift \
+  ios/BrandRadar/{CanvasContent,AgentConnection,DirectAgent,AgentPatchContent,TaskBlueprint}.swift \
   ios/tests/DirectAgentChecks.swift -o outputs/direct-agent-checks
 outputs/direct-agent-checks
 
 xcrun swiftc -D DEBUG -D DIRECT_AGENT_STREAM_CHECKS \
-  ios/BrandRadar/{CanvasContent,AgentConnection,DirectAgent,AgentPatchContent,AgentStreamProtocol,AgentStreamGeneration}.swift \
+  ios/BrandRadar/{CanvasContent,AgentConnection,DirectAgent,AgentPatchContent,TaskBlueprint,AgentStreamProtocol,AgentStreamGeneration}.swift \
   ios/tests/{DirectAgentChecks,AgentStreamChecks}.swift -o outputs/agent-stream-checks
 outputs/agent-stream-checks
 ```

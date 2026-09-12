@@ -51,7 +51,14 @@ extension DirectAgent {
             if let kind = raw["kind"] { guard let value = kind as? String else { throw bad }; block.kind = value }
             guard ["text", "image", "drawing", "checklist", "table", "link", "file", "audio", "video"].contains(block.kind) else { throw bad }
             if let text = raw["text"] { guard let text = text as? String, text.count <= 16000 else { throw bad }; block.text = text }
-            if let emphasis = raw["emphasis"] { guard let value = emphasis as? String, ["plain", "bold", "heading", "list"].contains(value) else { throw bad }; block.emphasis = value }
+            if let emphasis = raw["emphasis"] {
+                guard let text = emphasis as? String else { throw bad }
+                // Real compatible providers sometimes repeat kind=text in this visual hint.
+                // This unambiguous alias changes no content or privilege; unknown hints fail.
+                let value = text == "text" ? "plain" : text
+                guard ["plain", "bold", "heading", "list"].contains(value) else { throw bad }
+                block.emphasis = value
+            }
             if let value = raw["items"] {
                 guard let items = value as? [[String: Any]], items.count <= 80 else { throw bad }
                 var itemIDs = Set<String>()

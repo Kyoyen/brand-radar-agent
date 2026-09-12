@@ -75,13 +75,14 @@ enum CanvasHistory {
     private static func encoded<T: Encodable>(_ value: T) -> Data? {
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]; return try? encoder.encode(value)
     }
-    private static func changes<T: Codable & Identifiable>(before: [T], after: [T], kind: String) -> [CanvasFieldChange] where T.ID == String {
+    private static func changes<T: Codable & Identifiable & Equatable>(before: [T], after: [T], kind: String) -> [CanvasFieldChange] where T.ID == String {
         let old = Dictionary(uniqueKeysWithValues: before.map { ($0.id, $0) })
         let new = Dictionary(uniqueKeysWithValues: after.map { ($0.id, $0) })
         return Set(old.keys).union(new.keys).sorted().flatMap { id -> [CanvasFieldChange] in
             guard let a = old[id], let b = new[id] else {
                 return [CanvasFieldChange(object: kind, id: id, field: "*", before: old[id].flatMap(encoded), after: new[id].flatMap(encoded))]
             }
+            guard a != b else { return [] }
             let x = fields(a), y = fields(b)
             return Set(x.keys).union(y.keys).sorted().compactMap { key in
                 x[key] == y[key] ? nil : CanvasFieldChange(object: kind, id: id, field: key, before: x[key], after: y[key])

@@ -114,6 +114,7 @@ struct RadarBoard: Codable, Identifiable {
     var editHistory: [CanvasEditSession]? = nil
     var redoHistory: [CanvasEditSession]? = nil
     var pendingSpeech: String? = nil
+    var pendingSpeechRequiresConfirmation: Bool? = nil
     var activeEditSession: CanvasEditSession? = nil
     var mode: WorkspaceMode { workspaceMode ?? .practice }
     var visibleCards: [RadarCard] { cards.filter { $0.status != "archived" } }

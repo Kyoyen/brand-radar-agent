@@ -84,34 +84,9 @@ struct RichContentEditor: View {
                 if style == "list" { binding.text.wrappedValue = binding.text.wrappedValue.components(separatedBy: "\n").map { $0.hasPrefix("• ") ? $0 : "• " + $0 }.joined(separator: "\n") }
             }
         case "checklist":
-            ForEach(binding.items) { item in
-                HStack {
-                    Toggle("完成", isOn: item.isChecked).labelsHidden().toggleStyle(.checkmark)
-                    TextField("事项", text: item.text, axis: .vertical)
-                    Menu { Button("上移") { moveItem(block.id, item.wrappedValue.id, -1) }; Button("下移") { moveItem(block.id, item.wrappedValue.id, 1) }; Button("删除", role: .destructive) { binding.items.wrappedValue.removeAll { $0.id == item.wrappedValue.id } } } label: { Image(systemName: "ellipsis") }
-                }
-            }
-            Button("添加事项", systemImage: "plus") { binding.items.wrappedValue.append(CanvasChecklistItem()) }
+            ChecklistBlockEditor(block: binding)
         case "table":
-            ScrollView(.horizontal) {
-                VStack(spacing: 2) {
-                    ForEach(block.rows.indices, id: \.self) { row in
-                        HStack(spacing: 2) {
-                            ForEach(block.rows[row].indices, id: \.self) { col in
-                                TextField("", text: Binding(get: { binding.wrappedValue.rows[safe: row]?[safe: col] ?? "" }, set: { value in
-                                    guard binding.wrappedValue.rows.indices.contains(row), binding.wrappedValue.rows[row].indices.contains(col) else { return }; binding.wrappedValue.rows[row][col] = value
-                                })).frame(width: 120).padding(8).background(.white.opacity(0.7))
-                            }
-                        }
-                    }
-                }
-            }
-            Menu("编辑表格") {
-                Button("添加行") { binding.rows.wrappedValue.append(Array(repeating: "", count: max(1, block.rows.first?.count ?? 2))) }
-                Button("添加列") { binding.rows.wrappedValue = block.rows.map { $0 + [""] } }
-                Button("删除末行") { if !binding.rows.wrappedValue.isEmpty { binding.rows.wrappedValue.removeLast() } }
-                Button("删除末列") { binding.rows.wrappedValue = block.rows.map { Array($0.dropLast()) } }
-            }
+            TableBlockEditor(block: binding)
         case "link":
             TextField("标题与说明", text: binding.text, axis: .vertical)
             TextField("https://", text: binding.url).keyboardType(.URL).textInputAutocapitalization(.never)
@@ -137,10 +112,6 @@ struct RichContentEditor: View {
     }
 }
 private extension Array { subscript(safe index: Int) -> Element? { indices.contains(index) ? self[index] : nil } }
-private struct CheckmarkStyle: ToggleStyle {
-    func makeBody(configuration: Configuration) -> some View { Button { configuration.isOn.toggle() } label: { Image(systemName: configuration.isOn ? "checkmark.circle.fill" : "circle").font(.title3) }.buttonStyle(.plain) }
-}
-private extension ToggleStyle where Self == CheckmarkStyle { static var checkmark: CheckmarkStyle { .init() } }
 private struct MediaBlock: View {
     let url: URL
     @State private var player: AVPlayer?
@@ -205,4 +176,119 @@ private struct DrawingSurface: UIViewRepresentable {
         return canvas
     }
     func updateUIView(_ uiView: PKCanvasView, context: Context) {}
+}
+
+private struct ChecklistBlockEditor: View {
+    @Binding var block: CanvasBlock
+    @State private var editingID: String?
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach($block.items) { $item in
+                HStack(alignment: .center, spacing: 0) {
+                    Button { item.isChecked.toggle() } label: {
+                        Image(systemName: item.isChecked ? "checkmark.circle.fill" : "circle")
+                            .font(.system(size: 23, weight: .regular)).foregroundStyle(item.isChecked ? RadarPalette.green : .secondary)
+                            .frame(width: 48, height: 48).contentShape(Rectangle())
+                    }.buttonStyle(.plain).accessibilityLabel(item.isChecked ? "标为未完成" : "标为完成")
+                        .accessibilityValue(item.text).accessibilityIdentifier("checklistToggle_\(item.id)")
+                    Button { editingID = item.id } label: {
+                        Text(item.text.isEmpty ? "事项" : item.text).font(.body)
+                            .foregroundStyle(item.isChecked || item.text.isEmpty ? .secondary : .primary)
+                            .strikethrough(item.isChecked, color: .secondary.opacity(0.5))
+                            .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading).contentShape(Rectangle())
+                    }.buttonStyle(.plain).accessibilityIdentifier("checklistText_\(item.id)")
+                    Menu {
+                        Button("编辑", systemImage: "pencil") { editingID = item.id }
+                        Button("上移", systemImage: "arrow.up") { move(item.id, -1) }.disabled(block.items.first?.id == item.id)
+                        Button("下移", systemImage: "arrow.down") { move(item.id, 1) }.disabled(block.items.last?.id == item.id)
+                        Button("删除", systemImage: "trash", role: .destructive) { block.items.removeAll { $0.id == item.id } }
+                    } label: { Image(systemName: "ellipsis").font(.subheadline).foregroundStyle(.secondary).frame(width: 44, height: 48).contentShape(Rectangle()) }
+                    .accessibilityLabel("事项操作")
+                }
+                if item.id != block.items.last?.id { Divider().padding(.leading, 48) }
+            }
+            Button { let item = CanvasChecklistItem(); block.items.append(item); editingID = item.id } label: {
+                Label("添加事项", systemImage: "plus").font(.subheadline).frame(minHeight: 44).padding(.leading, 12)
+            }
+        }.sheet(isPresented: Binding(get: { editingID != nil }, set: { if !$0 { editingID = nil } })) {
+            if let id = editingID, let index = block.items.firstIndex(where: { $0.id == id }) {
+                ContentTextSheet(title: "事项", value: $block.items[index].text)
+            }
+        }
+    }
+    private func move(_ id: String, _ offset: Int) {
+        guard let index = block.items.firstIndex(where: { $0.id == id }), block.items.indices.contains(index + offset) else { return }
+        block.items.swapAt(index, index + offset)
+    }
+}
+
+private struct TableBlockEditor: View {
+    @Binding var block: CanvasBlock
+    @State private var selection: TableCell?
+    private struct TableCell: Identifiable { var row: Int; var column: Int; var id: String { "\(row)_\(column)" } }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                if !block.text.isEmpty { Text(block.text).font(.headline).frame(maxWidth: .infinity, alignment: .leading) }
+                Spacer(minLength: 0)
+                Menu {
+                    Button("添加行", systemImage: "plus") { block.rows.append(Array(repeating: "", count: max(1, block.rows.first?.count ?? 2))) }
+                    Button("添加列", systemImage: "plus") { block.rows = block.rows.isEmpty ? [[""]] : block.rows.map { $0 + [""] } }
+                    Button("删除末行", role: .destructive) { if !block.rows.isEmpty { block.rows.removeLast() } }
+                    Button("删除末列", role: .destructive) { block.rows = block.rows.map { Array($0.dropLast()) } }
+                } label: { Label("编辑表格", systemImage: "tablecells").font(.caption).frame(minHeight: 44) }
+                .accessibilityIdentifier("tableActions_\(block.id)")
+            }
+            ScrollView(.horizontal) {
+                VStack(spacing: 1) {
+                    ForEach(block.rows.indices, id: \.self) { row in
+                        HStack(spacing: 1) {
+                            ForEach(block.rows[row].indices, id: \.self) { column in
+                                Button { selection = TableCell(row: row, column: column) } label: {
+                                    Text(block.rows[row][column].isEmpty ? (row == 0 ? "列 \(column + 1)" : "—") : block.rows[row][column])
+                                        .font(row == 0 ? .subheadline.weight(.semibold) : .subheadline)
+                                        .foregroundStyle(block.rows[row][column].isEmpty ? .secondary : .primary)
+                                        .multilineTextAlignment(.leading).lineLimit(4)
+                                        .frame(width: 112, height: rowHeight(row) - 24, alignment: .leading).padding(12)
+                                        .background(row == 0 ? RadarPalette.sage.opacity(0.65) : row.isMultiple(of: 2) ? Color.white.opacity(0.5) : RadarPalette.paper)
+                                        .contentShape(Rectangle())
+                                }.buttonStyle(.plain).accessibilityLabel("第 \(row + 1) 行，第 \(column + 1) 列，\(block.rows[row][column].isEmpty ? "空白" : block.rows[row][column])")
+                                    .accessibilityIdentifier("tableCell_\(row)_\(column)")
+                            }
+                        }
+                    }
+                }.background(.black.opacity(0.07)).clipShape(RoundedRectangle(cornerRadius: 10))
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(.black.opacity(0.07)))
+            }.scrollIndicators(.visible)
+        }.sheet(item: $selection) { cell in
+            if block.rows.indices.contains(cell.row), block.rows[cell.row].indices.contains(cell.column) {
+                ContentTextSheet(title: cellTitle(cell.row, cell.column), value: $block.rows[cell.row][cell.column])
+            }
+        }
+    }
+    private func cellTitle(_ row: Int, _ column: Int) -> String {
+        if row == 0 { return "列标题" }
+        guard let first = block.rows.first, first.indices.contains(column), !first[column].isEmpty else { return "单元格" }
+        return first[column]
+    }
+    private func rowHeight(_ row: Int) -> CGFloat {
+        let font = UIFont.preferredFont(forTextStyle: .subheadline)
+        return max(48, min(font.lineHeight * 4 + 24, block.rows[row].map { ($0 as NSString).boundingRect(with: CGSize(width: 112, height: 1000), options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: [.font: font], context: nil).height + 24 }.max() ?? 48))
+    }
+}
+
+private struct ContentTextSheet: View {
+    var title: String
+    @Binding var value: String
+    @Environment(\.dismiss) private var dismiss
+    @FocusState private var focused: Bool
+    var body: some View {
+        NavigationStack {
+            TextEditor(text: $value).font(.body).padding(16).scrollContentBackground(.hidden)
+                .focused($focused).accessibilityIdentifier("contentValueInput")
+                .background(RadarPalette.paper).navigationTitle(title).navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() }.accessibilityIdentifier("finishContentValue") } }
+                .onAppear { focused = true }
+        }.presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
+    }
 }

@@ -14,10 +14,26 @@ import UniformTypeIdentifiers
                 }
                 .task {
                     #if DEBUG
+                    if ProcessInfo.processInfo.arguments.contains("--uitesting") && ProcessInfo.processInfo.arguments.contains("--canvas-perfcheck") {
+                        var result: [String: Any] = [:]
+                        do { result["passed"] = try CanvasGeometryChecks.run(); result["benchmark"] = CanvasGeometryChecks.benchmark; result["status"] = "passed" }
+                        catch { result["status"] = "failed"; result["error"] = String(describing: error) }
+                        let url = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("canvas-performance.json")
+                        try? JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .sortedKeys]).write(to: url, options: .atomic)
+                    }
                     if ProcessInfo.processInfo.arguments.contains("--canvas-selfcheck") {
                         let result = CanvasAcceptance.run(store: store)
                         let url = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("canvas-checks.json")
                         try? JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .sortedKeys]).write(to: url, options: .atomic)
+                    }
+                    #endif
+                    #if DEBUG
+                    if ProcessInfo.processInfo.arguments.contains("--uitesting") && ProcessInfo.processInfo.arguments.contains("--live-review-fixture") {
+                        let baseline = store.current
+                        _ = store.beginVoiceSession(requiresConfirmation: true)
+                        let card = RadarCard(id: "beta-review-card", title: "口述生成的方向", body: "一起去户外", x: 0, y: 0)
+                        _ = store.acceptTestUpdate(DirectAgentResult(cards: [card], edges: [], removeIDs: [], removeEdgeIDs: [], summary: ""), base: baseline)
+                        store.sealTestSession()
                     }
                     #endif
                     await store.checkConnection()
@@ -36,13 +52,15 @@ struct WorkspaceView: View {
     @State private var boardName = ""
     @State private var importingCanvas = false
     @StateObject private var dockSpeech = SpeechInput()
+    @State private var dockHeight: CGFloat = 120
+    @State private var liveDrawing = false
     @State private var holdingVoice = false
     @State private var cancellingVoice = false
     @State private var voiceBoardID: String?
     private let ink = Color(red: 0.14, green: 0.19, blue: 0.14)
     var body: some View {
         ZStack {
-            InfiniteCanvas(store: store) { id in
+            InfiniteCanvas(store: store, bottomInset: dockHeight + 105) { id in
                 editingCard = store.current.cards.first { $0.id == id }
             }.ignoresSafeArea()
             VStack(spacing: 0) {
@@ -81,8 +99,10 @@ struct WorkspaceView: View {
 
                 }.padding(.horizontal, 22).padding(.bottom, 15)
                 chatDock
+                    .background(GeometryReader { proxy in Color.clear.preference(key: DockHeightKey.self, value: proxy.size.height) })
             }
         }
+        .onPreferenceChange(DockHeightKey.self) { if abs(dockHeight - $0) > 1 { dockHeight = $0 } }
         .foregroundStyle(ink)
         .sheet(item: $sheet) { item in
             switch item {
@@ -114,8 +134,10 @@ struct WorkspaceView: View {
         .onChange(of: renaming) { _, value in if value { interruptDockVoice() } }
         .onChange(of: store.selectedID) { _, _ in interruptDockVoice() }
 
-        .onChange(of: dockSpeech.transcript) { _, text in if voiceBoardID != nil { store.receiveVoice(text) } }
-        .onChange(of: dockSpeech.error) { _, value in if let value { store.interruptVoiceSession(); holdingVoice = false; voiceBoardID = nil; store.error = value } }
+        .onChange(of: dockSpeech.transcript) { _, text in if voiceBoardID != nil && liveDrawing { store.receiveVoice(text) } }
+        .onChange(of: dockSpeech.error) { _, value in if let value { interruptDockVoice(); store.error = value } }
+        .onAppear { if store.voiceAwaitingReview { liveDrawing = true } }
+        .onChange(of: store.voiceAwaitingReview) { _, value in if value { liveDrawing = true } }
         .onChange(of: scenePhase) { _, phase in
             if phase == .background { interruptDockVoice(); store.interruptVoiceSession(); store.persist() }
             else { Task { await store.checkConnection() } }
@@ -125,7 +147,7 @@ struct WorkspaceView: View {
         HStack(spacing: 12) {
             Button { sheet = .boards } label: {
                 Image(systemName: "square.stack.3d.up").font(.system(size: 19)).frame(width: 43, height: 43)
-            }.background(.white.opacity(0.82), in: Circle()).accessibilityLabel("我的画布").accessibilityIdentifier("boardsButton")
+            }.background(.white.opacity(0.82), in: Circle()).accessibilityLabel("我的画布").accessibilityIdentifier("boardsButton").disabled(store.voiceSession != nil)
             VStack(alignment: .leading, spacing: 3) {
                 Text("BRAND RADAR").font(.system(size: 9, weight: .bold, design: .monospaced)).tracking(2.4)
                 Text(store.current.title).font(.system(size: 16, weight: .semibold)).lineLimit(1).accessibilityIdentifier("boardTitle")
@@ -160,7 +182,26 @@ struct WorkspaceView: View {
     }
     private var chatDock: some View {
         VStack(spacing: 0) {
-            if holdingVoice || dockSpeech.finishing {
+            HStack {
+                Button { liveDrawing = false } label: { Text("Brief").fontWeight(liveDrawing ? .regular : .semibold) }
+                    .accessibilityIdentifier("briefModeButton")
+                Button { liveDrawing = true } label: { Text("边说边画 · Beta").fontWeight(liveDrawing ? .semibold : .regular) }
+                    .accessibilityIdentifier("liveDrawingModeButton")
+                Spacer()
+            }.font(.caption).buttonStyle(.plain).padding(.horizontal, 22).padding(.top, 14)
+                .disabled(holdingVoice || dockSpeech.finishing || store.voiceSession != nil)
+            if store.voiceAwaitingReview {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("保留这次变化？").font(.subheadline.weight(.semibold)).accessibilityIdentifier("liveDrawingReview")
+                    Text(store.voiceChangeSummary).font(.caption).foregroundStyle(.secondary)
+                    HStack {
+                        Button("放弃") { store.cancelVoiceSession() }.frame(minWidth: 64, minHeight: 44).accessibilityIdentifier("discardLiveDrawingButton")
+                        Spacer()
+                        Button { store.keepVoiceChanges() } label: { Text("保留").foregroundStyle(.white).frame(minWidth: 48, minHeight: 28) }.buttonStyle(.borderedProminent).accessibilityIdentifier("keepLiveDrawingButton")
+                    }
+                }.padding(16).background(ink.opacity(0.04), in: RoundedRectangle(cornerRadius: 16)).padding(12)
+            }
+            if holdingVoice || dockSpeech.finishing || (liveDrawing && store.voiceSession != nil && !store.voiceAwaitingReview) {
                 HStack(spacing: 8) {
                     Image(systemName: cancellingVoice ? "xmark.circle" : "waveform")
                     Text(voiceTitle).font(.caption).accessibilityIdentifier("voiceState")
@@ -168,8 +209,20 @@ struct WorkspaceView: View {
                     Button("取消") { cancelDockVoice() }.font(.caption).accessibilityIdentifier("cancelVoiceButton")
                 }.foregroundStyle(cancellingVoice ? .secondary : .primary).padding(.horizontal, 19).padding(.top, 13)
             }
+            if holdingVoice || dockSpeech.finishing || (liveDrawing && store.voiceSession != nil) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(dockSpeech.transcript.isEmpty ? store.voiceSession?.transcript ?? "正在聆听…" : dockSpeech.transcript)
+                        .font(.system(size: 15)).lineLimit(4).frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityIdentifier("liveTranscript")
+                    if liveDrawing { Text(store.voiceChangeSummary).font(.caption2).foregroundStyle(.secondary).accessibilityIdentifier("liveChangeSummary") }
+                }.padding(.horizontal, 19).padding(.top, 8)
+            }
             if let clarification = store.clarification {
-                Button { sheet = .chat } label: { Text(clarification).font(.caption).multilineTextAlignment(.leading).lineLimit(3) }.padding(.horizontal, 19).padding(.top, 12)
+                if store.voiceSession != nil {
+                    Text(clarification).font(.caption).multilineTextAlignment(.leading).lineLimit(3).padding(.horizontal, 19).padding(.top, 12)
+                } else {
+                    Button { sheet = .chat } label: { Text(clarification).font(.caption).multilineTextAlignment(.leading).lineLimit(3) }.padding(.horizontal, 19).padding(.top, 12)
+                }
             }
             if store.voiceSession == nil, !(store.current.pendingSpeech ?? "").isEmpty {
                 Button("继续整理刚才的话") { store.resumeVoice() }.font(.caption).padding(.top, 12)
@@ -185,11 +238,11 @@ struct WorkspaceView: View {
             HStack(spacing: 12) {
                 Button { sheet = .templates } label: {
                     Image(systemName: "square.grid.2x2").font(.system(size: 19)).frame(width: 42, height: 48)
-                }.accessibilityLabel("画布模板").accessibilityIdentifier("templatesButton")
+                }.accessibilityLabel("画布模板").accessibilityIdentifier("templatesButton").disabled(store.voiceSession != nil)
                 Rectangle().fill(ink.opacity(0.12)).frame(width: 1, height: 25)
-                HoldToTalkControl(title: voiceTitle, voiceEnabled: (holdingVoice || !store.isRunning) && !dockSpeech.finishing,
+                HoldToTalkControl(title: voiceTitle, voiceEnabled: (holdingVoice || (!store.isRunning && store.voiceSession == nil)) && !dockSpeech.finishing,
                                   active: holdingVoice || dockSpeech.finishing,
-                                  onTap: { interruptDockVoice(); sheet = .chat },
+                                  onTap: { guard store.voiceSession == nil else { return }; interruptDockVoice(); sheet = .chat },
                                   onBegin: beginDockVoice,
                                   onCancelChange: { cancellingVoice = $0 },
                                   onEnd: endDockVoice)
@@ -209,7 +262,8 @@ struct WorkspaceView: View {
         return "说出你的想法"
     }
     private func beginDockVoice() {
-        guard !store.isRunning, !dockSpeech.finishing, store.beginVoiceSession() else { return }
+        guard !store.isRunning, store.voiceSession == nil, !dockSpeech.finishing else { return }
+        if liveDrawing && !store.beginVoiceSession(requiresConfirmation: true) { return }
         dockSpeech.transcript = ""
         holdingVoice = true; cancellingVoice = false; voiceBoardID = store.selectedID
         Task { @MainActor in
@@ -225,7 +279,8 @@ struct WorkspaceView: View {
             voiceBoardID = nil
             let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard scenePhase == .active, store.selectedID == boardID else { store.interruptVoiceSession(); return }
-            store.finishVoiceSession(text)
+            if liveDrawing { store.finishVoiceSession(text) }
+            else if !text.isEmpty { store.send(text) }
         }
     }
     private func cancelDockVoice() {
@@ -236,7 +291,10 @@ struct WorkspaceView: View {
         let wasRecording = voiceBoardID != nil || holdingVoice || dockSpeech.recording || dockSpeech.finishing
         holdingVoice = false; cancellingVoice = false; voiceBoardID = nil
         dockSpeech.stop()
-        if wasRecording { store.interruptVoiceSession() }
+        if wasRecording {
+            if liveDrawing { store.interruptVoiceSession() }
+            else if !dockSpeech.transcript.isEmpty { store.setComposerDraft(dockSpeech.transcript) }
+        }
     }
     private func exportCanvas(_ kind: String) {
         do {
@@ -253,4 +311,9 @@ struct ShareSheet: UIViewControllerRepresentable {
     var items: [Any]
     func makeUIViewController(context: Context) -> UIActivityViewController { UIActivityViewController(activityItems: items, applicationActivities: nil) }
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+}
+
+private struct DockHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 120
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }

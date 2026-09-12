@@ -2,8 +2,14 @@ import UIKit
 
 /// All hit testing, layout bounds and connector anchors use the same geometry.
 enum CanvasGeometry {
+    static func fittingArea(in bounds: CGRect, safeArea: UIEdgeInsets, bottomInset: CGFloat = 250) -> CGRect {
+        let top = max(150, safeArea.top + 130)
+        let bottom = max(bottomInset, safeArea.bottom + 160)
+        return CGRect(x: 24, y: top, width: max(1, bounds.width - 48), height: max(1, bounds.height - top - bottom))
+    }
     static func cardRect(_ card: RadarCard) -> CGRect {
         let width = max(180, min(900, card.width))
+        if let height = card.height { return CGRect(x: card.x, y: card.y, width: width, height: max(150, min(1800, height))) }
         let preview = card.effectiveBlocks.map(\.summary).joined(separator: "\n")
         let body = (preview as NSString).boundingRect(with: CGSize(width: width - 44, height: 240), options: .usesLineFragmentOrigin, attributes: [.font: UIFont.systemFont(ofSize: 14)], context: nil).height
         return CGRect(x: card.x, y: card.y, width: width, height: max(150, min(1800, card.height ?? max(238, body + 145, card.effectiveBlocks.contains(where: { $0.kind == "image" || $0.kind == "drawing" }) ? 310 : 0)) ))

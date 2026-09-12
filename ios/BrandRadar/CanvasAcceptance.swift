@@ -9,6 +9,7 @@ import Foundation
         }
         do {
             passed += try CanvasContentChecks.run()
+            passed += try CanvasGeometryChecks.run()
             var board = BoardTemplate.blank.make()
             let a = RadarCard(id: "a", title: "初始", body: "原文"), b = RadarCard(id: "b", title: "后续", body: "")
             board.cards = [a,b]
@@ -69,12 +70,42 @@ import Foundation
             let accepted = store.acceptTestUpdate(conflict, base: original)
             try expect(!accepted && store.voiceSession == nil, "conflicting batch stops the edit session")
             try expect(!(store.current.pendingSpeech ?? "").isEmpty, "rejected batch preserves transcript for resume")
+            store.importCanvas(board)
+            let reviewBase = store.current
+            let historyCount = store.current.editHistory?.count ?? 0
+            _ = store.beginVoiceSession(requiresConfirmation: true)
+            store.acceptTestUpdate(patch, base: reviewBase); store.sealTestSession()
+            try expect(store.voiceAwaitingReview && store.voiceSession != nil, "Beta waits for explicit confirmation after generation")
+            try expect((store.current.editHistory?.count ?? 0) == historyCount, "unconfirmed Beta is not committed to undo history")
+            let reviewDocument = try JSONDecoder().decode(RadarBoard.self, from: JSONEncoder().encode(store.current))
+            try expect(reviewDocument.activeEditSession?.title == "边说边画 Beta", "unconfirmed proposal persists for restart recovery")
+            var humanReview = store.current.cards[0]; humanReview.title = "审阅时手动改名"
+            store.editCard(humanReview); store.cancelVoiceSession()
+            try expect(store.current.cards[0].body == reviewBase.cards[0].body && store.current.cards[0].title == "审阅时手动改名", "discard Beta preserves review-time manual edits")
+            let keepBase = store.current
+            _ = store.beginVoiceSession(requiresConfirmation: true)
+            store.acceptTestUpdate(patch, base: keepBase); store.sealTestSession(); store.keepVoiceChanges()
+            try expect(!store.voiceAwaitingReview && store.voiceSession == nil, "keep closes Beta review")
+            store.undo()
+            try expect(store.current.cards[0].body == keepBase.cards[0].body, "accepted Beta can be undone as one utterance")
+            store.redo()
+            try expect(store.current.cards[0].body == "口述修改", "accepted Beta redo restores proposal")
+            _ = store.beginVoiceSession(requiresConfirmation: true)
+            store.receiveVoice("再补充共同的物料")
+            store.interruptVoiceSession(); store.keepVoiceChanges()
+            try expect(store.current.pendingSpeechRequiresConfirmation == true && !(store.current.pendingSpeech ?? "").isEmpty, "interrupted Beta retains confirmation mode with transcript")
+            store.resumeVoice()
+            try expect(store.voiceSession?.title == "边说边画 Beta" && store.voiceAwaitingReview, "resumed Beta still requires explicit review")
+            store.cancelVoiceSession()
+            let viewportHistory = store.current.editHistory?.count ?? 0
+            for i in 0..<100 { store.setViewport(x: Double(i), y: 42, zoom: 0.7) }
+            try expect(store.current.offsetX == 99 && store.current.editHistory?.count == viewportHistory, "camera updates bypass content history")
             var checked = RadarCard(id:"check",title:"准备",body:"")
             checked.blocks = [CanvasBlock(id:"list",kind:"checklist",items:[CanvasChecklistItem(id:"item",text:"带相机",isChecked:true)])]
             var proposal = checked; proposal.blocks![0].items[0].isChecked = false; proposal.blocks![0].items[0].text = "带备用相机"
             let combined = CanvasHistory.merge(proposal,base:checked,current:checked)
             try expect(combined.blocks![0].items[0].isChecked && combined.blocks![0].items[0].text == "带备用相机", "AI checklist edits preserve completion state")
-            return ["passed": passed, "count": passed.count, "status":"passed"]
+            return ["passed": passed, "count": passed.count, "status":"passed", "geometryBenchmark":CanvasGeometryChecks.benchmark]
         } catch {
             return ["passed": passed, "count": passed.count, "status":"failed", "error":String(describing:error)]
         }
