@@ -21,3 +21,23 @@
 ![取消后改动已保存](20260918-screens/b00-cancel-committed.png)
 ![放下前](20260918-screens/b00-before-archive.png)
 ![重开并恢复后关系缺失](20260918-screens/b00-restored-without-relations.png)
+
+## B01：编辑与撤销
+
+- 普通编辑保留本地草稿；取消与下滑退出显示“保存 / 放弃更改 / 继续编辑”。干净编辑器可直接关闭；“查看原素材”也遵循相同退出处理。
+- “保存并转为节点”明确提示会保存草稿；保存与拆分一次提交，完成后关闭编辑器，画布提供本次撤销入口。
+- 保存按字段及内容块合并，保留其他操作的修改；同字段、同块或顺序冲突拒绝整次保存并保留草稿。
+- 修复拆分后的条件撤销：另一块被 Agent 修改时，仍能恢复拆出内容；被人修改过的目标节点、或原节点已删除时的目标内容，不被撤销抹掉。派生正文随块更新，独立旧正文仍保留。
+- 沿用原有历史结构和稳定块 ID；新记录显式保留旧文字块，兼容已保存的旧历史。没有引入整板快照回滚或通用事务框架。
+
+验证：A01—A04 的 5 项 UI 用例通过；模板编辑保存、混合内容保存重开、Beta 保留／放弃与重启的 4 项相关 UI 回归通过。真实 Store 层新增 26 个检查通过，含并发块编辑、源节点删除、单次撤销／重做与旧正文兼容。
+
+运行采用 B00 的同一设备与隔离方式，`xcodebuild ... test` 选择 `EditorCommitUITests`、`BrandRadarUITests/testTemplateEditingAndPersistence`、`RichContentUITests`、`LiveDrawingUITests`。7/8 首轮中唯一剩余失败为测试同时匹配浮条与菜单的“撤销”；定点使用 `undoSplitButton` 后，拆分用例与上述 4 项回归最终 5/5 通过。最终构建产物及其检查为 B01+B02 联合工作树。
+
+证据：`outputs/ios-derived/Logs/Test/Test-BrandRadar-2026.09.18_16-09-58-+0800.xcresult`（其余 7 项通过）；`Test-BrandRadar-2026.09.18_16-13-31-+0800.xcresult`（最终 5/5）。原生检查使用 `xcrun simctl launch --terminate-running-process 6A56C70C-1A1E-4FF6-9CCD-B78E260FDAE7 com.keyuanshi.brandradar --uitesting --canvas-selfcheck`；结果在 `outputs/review-20260918/final/canvas-checks.json`。
+
+未执行：实体 iPhone 手势与 VoiceOver；模拟器通过不能替代这些验证。
+
+![脏草稿退出的三个选择](20260918-screens/b01-dirty-exit.png)
+![保存并转节点后结束编辑](20260918-screens/b01-split-committed.png)
+![一次撤销恢复原稿](20260918-screens/b01-single-undo.png)

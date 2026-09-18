@@ -99,6 +99,21 @@ struct CardEditor: View {
     @State private var originalCard: RadarCard
     init(card: RadarCard) { _card = State(initialValue: card); _originalCard = State(initialValue: card) }
     @State private var sharing: ShareContent?
+    @State private var confirmExit = false
+    @State private var pendingFocusID: String?
+    @State private var pendingSplit: String?
+    @State private var confirmSplit = false
+    private var isDirty: Bool { card != originalCard }
+    private var canSave: Bool { !card.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    private func finishExit() {
+        if let id = pendingFocusID { store.focusNode(id) }
+        dismiss()
+    }
+    private func requestExit() { if isDirty { confirmExit = true } else { finishExit() } }
+    private func save() { if store.editCard(card, baseline: originalCard) { finishExit() } }
+    private func split(_ id: String) {
+        if store.saveAndSplitBlock(card, baseline: originalCard, blockID: id) { dismiss() }
+    }
     private let colors = [("cream", "奶油"), ("sage", "鼠尾草"), ("rose", "粉桃"), ("lavender", "丁香"), ("sand", "麦黄")]
     var body: some View {
         NavigationStack {
@@ -108,9 +123,7 @@ struct CardEditor: View {
                         TextField("标题", text: $card.title, axis: .vertical).font(.system(size: 26, weight: .semibold)).accessibilityIdentifier("cardTitleInput")
                         Rectangle().fill(.black.opacity(0.07)).frame(height: 1)
                         RichContentEditor(blocks: Binding(get: { card.effectiveBlocks }, set: { card.blocks = $0; card.body = $0.map(\.summary).joined(separator: "\n\n") })) { blockID in
-                            store.editCard(card, baseline: originalCard)
-                            store.splitBlock(cardID: card.id, blockID: blockID)
-                            if let latest = store.current.cards.first(where: { $0.id == card.id }) { card = latest; originalCard = latest }
+                            if isDirty { pendingSplit = blockID; confirmSplit = true } else { split(blockID) }
                         }
                     }.padding(23).background(Color(card.uiColor), in: RoundedRectangle(cornerRadius: 25))
                     HStack(spacing: 11) {
@@ -136,7 +149,7 @@ struct CardEditor: View {
                                             Link(source.title, destination: url).font(.subheadline.weight(.medium))
                                         } else { Text(source.title).font(.subheadline.weight(.medium)) }
                                         if let original = store.current.cards.first(where: { $0.effectiveBlocks.contains(where: { $0.id == source.id }) }) {
-                                            Button("查看原素材", systemImage: "arrow.up.left.and.arrow.down.right") { store.focusNode(original.id); dismiss() }
+                                            Button("查看原素材", systemImage: "arrow.up.left.and.arrow.down.right") { pendingFocusID = original.id; requestExit() }
                                                 .font(.caption).accessibilityIdentifier("viewSource_\(source.id)")
                                         }
                                         Text(source.excerpt).font(.caption).foregroundStyle(.secondary)
@@ -158,21 +171,41 @@ struct CardEditor: View {
                         Button("分享", systemImage: "square.and.arrow.up") { sharing = ShareContent(items: [(store.mode == .demo ? "示例画布\n\n" : "") + card.title + "\n\n" + card.body]) }
                         Spacer()
                         Button(card.status == "archived" ? "恢复" : "放下", systemImage: "archivebox") {
-                            card.status = card.status == "archived" ? "draft" : "archived"; store.editCard(card, baseline: originalCard); store.selectedCardID = nil; dismiss()
+                            let status = card.status
+                            card.status = status == "archived" ? "draft" : "archived"
+                            if store.editCard(card, baseline: originalCard) { store.selectedCardID = nil; dismiss() }
+                            else { card.status = status }
                         }.foregroundStyle(.secondary)
                     }.font(.subheadline).padding(.horizontal, 5).padding(.bottom, 10)
                 }.padding(20)
             }.background(RadarPalette.canvas).navigationTitle("卡片").navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                    ToolbarItem(placement: .cancellationAction) { Button("取消") { requestExit() }.accessibilityIdentifier("cancelCardButton") }
                     ToolbarItem(placement: .confirmationAction) {
-                        Button("保存") { store.editCard(card, baseline: originalCard); dismiss() }.bold().disabled(card.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty).accessibilityIdentifier("saveCardButton")
+                        Button("保存") { save() }.bold().disabled(!canSave).accessibilityIdentifier("saveCardButton")
                     }
                 }
                 .safeAreaInset(edge: .bottom) {
                     if store.isRunning { Text("正在改稿…").font(.caption).padding(10).frame(maxWidth: .infinity).background(.regularMaterial) }
                 }
-        }.sheet(item: $sharing) { ShareSheet(items: $0.items) }
+        }
+        .interactiveDismissDisabled(isDirty)
+        .background(EditorDismissGuard(isDirty: isDirty, onAttempt: requestExit))
+        .confirmationDialog("要保存更改吗？", isPresented: $confirmExit, titleVisibility: .visible) {
+            Button("保存") { save() }.disabled(!canSave).accessibilityIdentifier("saveEditorChangesButton")
+            Button("放弃更改", role: .destructive) { finishExit() }.accessibilityIdentifier("discardEditorChangesButton")
+            Button("继续编辑") { pendingFocusID = nil }.accessibilityIdentifier("continueEditingButton")
+        }
+        .confirmationDialog("保存并转为节点", isPresented: $confirmSplit, titleVisibility: .visible) {
+            Button("保存并转为节点") { if let id = pendingSplit { split(id) }; pendingSplit = nil }
+                .disabled(!canSave).accessibilityIdentifier("confirmSaveAndSplitButton")
+            Button("继续编辑", role: .cancel) { pendingSplit = nil }
+        } message: { Text("将保存当前更改，并把这项内容转为独立节点。") }
+        .alert("未能保存", isPresented: Binding(get: { store.editorFeedback != nil }, set: { if !$0 { store.editorFeedback = nil } })) {
+            Button("继续编辑", role: .cancel) { store.editorFeedback = nil }
+        } message: { Text(store.editorFeedback ?? "") }
+        .onAppear { store.editorFeedback = nil }
+        .sheet(item: $sharing) { ShareSheet(items: $0.items) }
     }
 }
 

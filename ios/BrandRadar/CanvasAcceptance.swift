@@ -9,6 +9,7 @@ import Foundation
         }
         do {
             passed += try CanvasContentChecks.run()
+            passed += try EditorCommitChecks.run(store: store)
             passed += try CanvasGeometryChecks.run()
             var board = BoardTemplate.blank.make()
             let a = RadarCard(id: "a", title: "初始", body: "原文"), b = RadarCard(id: "b", title: "后续", body: "")

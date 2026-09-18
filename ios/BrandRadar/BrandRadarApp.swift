@@ -98,6 +98,15 @@ struct WorkspaceView: View {
                         .background(.regularMaterial, in: Circle()).accessibilityLabel("添加便签").accessibilityIdentifier("addNoteButton")
 
                 }.padding(.horizontal, 22).padding(.bottom, 15)
+                if let sessionID = store.splitUndoSessionID, store.current.editHistory?.last?.id == sessionID {
+                    HStack {
+                        Text("已保存并转为节点").font(.subheadline)
+                        Spacer()
+                        Button("撤销") { store.undo(); store.splitUndoSessionID = nil }
+                            .disabled(!store.canUndo).accessibilityIdentifier("undoSplitButton")
+                    }.padding(14).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+                        .padding(.horizontal, 22).padding(.bottom, 10)
+                }
                 chatDock
                     .background(GeometryReader { proxy in Color.clear.preference(key: DockHeightKey.self, value: proxy.size.height) })
             }

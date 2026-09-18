@@ -90,7 +90,12 @@ enum CanvasHistory {
         }
     }
     static func diff(_ before: RadarBoard, _ after: RadarBoard) -> [CanvasFieldChange] {
-        changes(before: before.cards, after: after.cards, kind: "node") + changes(before: before.groups ?? [], after: after.groups ?? [], kind: "group") + changes(before: before.edges, after: after.edges, kind: "edge")
+        let nodes = changes(before: before.cards, after: after.cards, kind: "node").map { delta -> CanvasFieldChange in
+            guard delta.field == "blocks", let old = before.cards.first(where: { $0.id == delta.id }), let new = after.cards.first(where: { $0.id == delta.id }) else { return delta }
+            // Materialize the legacy text block in history so a partial undo can restore it alongside newer blocks.
+            var value = delta; value.before = encoded(old.effectiveBlocks); value.after = encoded(new.effectiveBlocks); return value
+        }
+        return nodes + changes(before: before.groups ?? [], after: after.groups ?? [], kind: "group") + changes(before: before.edges, after: after.edges, kind: "edge")
     }
     private static func apply<T: Codable & Identifiable>(_ delta: CanvasFieldChange, values: inout [T], backwards: Bool) where T.ID == String {
         let expected = backwards ? delta.after : delta.before, replacement = backwards ? delta.before : delta.after
@@ -108,13 +113,84 @@ enum CanvasHistory {
             if let data = try? JSONSerialization.data(withJSONObject: raw), let value = try? JSONDecoder().decode(T.self, from: data) { values[index] = value }
         }
     }
+    private static func blockSide(_ delta: CanvasFieldChange, data: Data?, changes: [CanvasFieldChange], before: Bool, fallback: RadarCard?) -> [CanvasBlock] {
+        if let data, let blocks = try? JSONDecoder().decode([CanvasBlock].self, from: data) { return blocks }
+        // Old persisted histories used nil for an unmaterialized legacy text block.
+        let bodyDelta = changes.first { $0.object == "node" && $0.id == delta.id && $0.field == "body" }
+        let bodyData = before ? bodyDelta?.before : bodyDelta?.after
+        let text = bodyData.flatMap { try? JSONDecoder().decode(String.self, from: $0) } ?? fallback?.body
+        return text.map { [CanvasBlock(id: "legacy_\(delta.id)", kind: "text", text: $0)] } ?? []
+    }
+    private static func applyBlocks(_ delta: CanvasFieldChange, to board: inout RadarBoard, changes: [CanvasFieldChange], backwards: Bool) {
+        guard let index = board.cards.firstIndex(where: { $0.id == delta.id }) else { return }
+        let card = board.cards[index]
+        let expected = blockSide(delta, data: backwards ? delta.after : delta.before, changes: changes, before: !backwards, fallback: card)
+        let replacement = blockSide(delta, data: backwards ? delta.before : delta.after, changes: changes, before: backwards, fallback: card)
+        let expectedByID = Dictionary(expected.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let replacementByID = Dictionary(replacement.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        var blocks = card.effectiveBlocks
+        for id in Set(expectedByID.keys).union(replacementByID.keys) where expectedByID[id] != replacementByID[id] {
+            let location = blocks.firstIndex { $0.id == id }
+            guard location.map({ blocks[$0] }) == expectedByID[id] else { continue }
+            if let value = replacementByID[id] {
+                if let location { blocks[location] = value }
+                else if let slot = replacement.firstIndex(where: { $0.id == id }) {
+                    if let previous = replacement.prefix(slot).reversed().first(where: { item in blocks.contains { $0.id == item.id } }), let anchor = blocks.firstIndex(where: { $0.id == previous.id }) { blocks.insert(value, at: anchor + 1) }
+                    else if let next = replacement.dropFirst(slot + 1).first(where: { item in blocks.contains { $0.id == item.id } }), let anchor = blocks.firstIndex(where: { $0.id == next.id }) { blocks.insert(value, at: anchor) }
+                    else { blocks.append(value) }
+                }
+            } else if let location { blocks.remove(at: location) }
+        }
+        let shared = Set(expectedByID.keys).intersection(replacementByID.keys)
+        let beforeOrder = expected.map(\.id).filter { shared.contains($0) }
+        let afterOrder = replacement.map(\.id).filter { shared.contains($0) }
+        let currentOrder = card.effectiveBlocks.map(\.id).filter { shared.contains($0) }
+        if beforeOrder != afterOrder && currentOrder == beforeOrder {
+            var arranged = afterOrder.compactMap { id in blocks.first { $0.id == id } }.makeIterator()
+            blocks = blocks.map { shared.contains($0.id) ? (arranged.next() ?? $0) : $0 }
+        }
+        board.cards[index].blocks = blocks
+    }
     static func apply(_ changes: [CanvasFieldChange], to board: inout RadarBoard, backwards: Bool) {
+        let blockOwners = Set(changes.filter { $0.object == "node" && $0.field == "blocks" }.map(\.id))
+        var derivedBodies = Set(board.cards.filter { blockOwners.contains($0.id) && $0.body == $0.effectiveBlocks.map(\.summary).joined(separator: "\n\n") }.map(\.id))
+        // A legacy body can be independent of rich content. Preserve an exact body inverse,
+        // but rebuild derived summaries after all block merges, regardless of field order.
+        for delta in changes where delta.object == "node" && delta.field == "body" && blockOwners.contains(delta.id) {
+            guard let card = board.cards.first(where: { $0.id == delta.id }),
+                  encoded(card.body) == (backwards ? delta.after : delta.before),
+                  let bodyData = backwards ? delta.before : delta.after,
+                  let body = try? JSONDecoder().decode(String.self, from: bodyData),
+                  let blocksDelta = changes.first(where: { $0.object == "node" && $0.id == delta.id && $0.field == "blocks" }) else { continue }
+            let blocks = blockSide(blocksDelta, data: backwards ? blocksDelta.before : blocksDelta.after, changes: changes, before: backwards, fallback: card)
+            if body == blocks.map(\.summary).joined(separator: "\n\n") { derivedBodies.insert(delta.id) }
+            else { derivedBodies.remove(delta.id) }
+        }
+        var deferredRemovals: [CanvasFieldChange] = []
         for delta in backwards ? Array(changes.reversed()) : changes {
             switch delta.object {
-            case "node": apply(delta, values: &board.cards, backwards: backwards)
+            case "node":
+                if delta.field == "blocks" { applyBlocks(delta, to: &board, changes: changes, backwards: backwards) }
+                else if delta.field == "*", (backwards ? delta.before : delta.after) == nil { deferredRemovals.append(delta) }
+                else { apply(delta, values: &board.cards, backwards: backwards) }
             case "group": var groups = board.groups ?? []; apply(delta, values: &groups, backwards: backwards); board.groups = groups
             default: apply(delta, values: &board.edges, backwards: backwards)
             }
+        }
+        for removal in deferredRemovals {
+            guard let data = backwards ? removal.after : removal.before, let node = try? JSONDecoder().decode(RadarCard.self, from: data) else { continue }
+            var safeToRemove = true
+            for delta in changes where delta.object == "node" && delta.field == "blocks" && delta.id != node.id {
+                let expected = blockSide(delta, data: backwards ? delta.after : delta.before, changes: changes, before: !backwards, fallback: nil)
+                let replacement = blockSide(delta, data: backwards ? delta.before : delta.after, changes: changes, before: backwards, fallback: nil)
+                for restored in replacement where !expected.contains(where: { $0.id == restored.id }) && node.effectiveBlocks.contains(where: { $0.id == restored.id }) {
+                    if board.cards.first(where: { $0.id == delta.id })?.effectiveBlocks.contains(restored) != true { safeToRemove = false }
+                }
+            }
+            if safeToRemove { apply(removal, values: &board.cards, backwards: backwards) }
+        }
+        for index in board.cards.indices where derivedBodies.contains(board.cards[index].id) {
+            board.cards[index].body = board.cards[index].effectiveBlocks.map(\.summary).joined(separator: "\n\n")
         }
         // Conditional inverses may preserve a human-edited object. Keep the rest structurally sound.
         let ids = Set(board.visibleCards.map(\.id)).union((board.groups ?? []).map(\.id))

@@ -6,6 +6,8 @@ import SwiftUI
     @Published var selectedCardID: String?
     @Published var busyBoardID: String?
     @Published var error: String?
+    @Published var editorFeedback: String?
+    @Published var splitUndoSessionID: String?
     @Published var activity = ""
     @Published var connected = false
     @Published var modelName = ""
@@ -278,36 +280,70 @@ import SwiftUI
         let card = RadarCard(title: "新便签", body: "", x: max(-100000, min(100000, (60 - board.offsetX) / board.zoom)), y: max(-100000, min(100000, (240 - board.offsetY) / board.zoom)))
         update { $0.cards.append(card) }; selectedCardID = card.id
     }
-    func editCard(_ card: RadarCard, baseline: RadarCard? = nil) {
-        update { board in
-            guard let i = board.cards.firstIndex(where: { $0.id == card.id }) else { return }
-            let current = board.cards[i]
-            var replacement = current
-            let base = baseline ?? current
-            if card.title != base.title { replacement.title = card.title }
-            if card.body != base.body { replacement.body = card.body }
-            if card.color != base.color { replacement.color = card.color }
-            if card.status != base.status { replacement.status = card.status }
-            if card.width != base.width { replacement.width = card.width }
-            if card.height != base.height { replacement.height = card.height }
-            if card.blocks != base.blocks {
-                let old = base.effectiveBlocks, edited = card.effectiveBlocks
-                let removed = Set(old.map(\.id)).subtracting(edited.map(\.id))
-                var blocks = current.effectiveBlocks.filter { !removed.contains($0.id) }
-                for block in edited where old.first(where: { $0.id == block.id }) != block {
-                    if let index = blocks.firstIndex(where: { $0.id == block.id }) { blocks[index] = block }
-                    else { blocks.append(block) }
-                }
-                let order = Dictionary(uniqueKeysWithValues: edited.enumerated().map { ($0.element.id, $0.offset) })
-                replacement.blocks = blocks.sorted { (order[$0.id] ?? Int.max) < (order[$1.id] ?? Int.max) }
-            }
-            if current.title != replacement.title || current.body != replacement.body { replacement.history.append(current.title + "\n\n" + current.body) }
-            board.cards[i] = replacement
-            if replacement.status == "archived" {
-                board.edges.removeAll { $0.fromID == card.id || $0.toID == card.id }
-                for index in (board.groups ?? []).indices { board.groups?[index].cardIDs.removeAll { $0 == card.id } }
-            }
+    /// Only fields touched in this editor are committed. A competing edit to the same field is explicit.
+    private func editorReplacement(_ draft: RadarCard, baseline: RadarCard, current: RadarCard) -> RadarCard? {
+        guard draft.id == baseline.id, draft.id == current.id else { editorFeedback = "原节点已变化，请保留草稿后重新打开。"; return nil }
+        var result = current
+        var conflict: String?
+        func merge<T: Equatable>(_ key: WritableKeyPath<RadarCard, T>, _ label: String) {
+            guard draft[keyPath: key] != baseline[keyPath: key] else { return }
+            if current[keyPath: key] != baseline[keyPath: key] && current[keyPath: key] != draft[keyPath: key] { conflict = conflict ?? label }
+            else { result[keyPath: key] = draft[keyPath: key] }
         }
+        merge(\.title, "标题"); merge(\.color, "颜色"); merge(\.status, "采用状态")
+        merge(\.width, "宽度"); merge(\.height, "高度")
+        let blocksChanged = draft.blocks != baseline.blocks
+        let draftSummary = draft.effectiveBlocks.map(\.summary).joined(separator: "\n\n")
+        let derivedBody = blocksChanged && draft.body == draftSummary
+        if !derivedBody { merge(\.body, "正文") }
+        else if current.body != baseline.body && current.body != draft.body && current.body != current.effectiveBlocks.map(\.summary).joined(separator: "\n\n") { conflict = conflict ?? "正文" }
+        if blocksChanged {
+            let old = baseline.effectiveBlocks, edited = draft.effectiveBlocks, latest = current.effectiveBlocks
+            guard Set(old.map(\.id)).count == old.count, Set(edited.map(\.id)).count == edited.count,
+                  Set(latest.map(\.id)).count == latest.count else { editorFeedback = "内容块标识重复，草稿尚未保存。"; return nil }
+            let oldByID = Dictionary(uniqueKeysWithValues: old.map { ($0.id, $0) })
+            let editedByID = Dictionary(uniqueKeysWithValues: edited.map { ($0.id, $0) })
+            let latestByID = Dictionary(uniqueKeysWithValues: latest.map { ($0.id, $0) })
+            let touched = Set(oldByID.keys).union(editedByID.keys).filter { oldByID[$0] != editedByID[$0] }
+            for id in touched where latestByID[id] != oldByID[id] && latestByID[id] != editedByID[id] { conflict = conflict ?? "同一内容块" }
+            let common = Set(oldByID.keys).intersection(editedByID.keys).intersection(latestByID.keys)
+            let oldOrder = old.map(\.id).filter { common.contains($0) }
+            let draftOrder = edited.map(\.id).filter { common.contains($0) }
+            let liveOrder = latest.map(\.id).filter { common.contains($0) }
+            if draftOrder != oldOrder && liveOrder != oldOrder && liveOrder != draftOrder { conflict = conflict ?? "内容块顺序" }
+            var blocks = latest.filter { !touched.contains($0.id) || editedByID[$0.id] != nil }
+            for (slot, block) in edited.enumerated() where touched.contains(block.id) {
+                if let index = blocks.firstIndex(where: { $0.id == block.id }) { blocks[index] = block }
+                else if let previous = edited.prefix(slot).reversed().first(where: { item in blocks.contains { $0.id == item.id } }), let anchor = blocks.firstIndex(where: { $0.id == previous.id }) { blocks.insert(block, at: anchor + 1) }
+                else if let next = edited.dropFirst(slot + 1).first(where: { item in blocks.contains { $0.id == item.id } }), let anchor = blocks.firstIndex(where: { $0.id == next.id }) { blocks.insert(block, at: anchor) }
+                else { blocks.append(block) }
+            }
+            if draftOrder != oldOrder {
+                let ordered = edited.compactMap { item in blocks.first { $0.id == item.id } }
+                blocks = ordered + blocks.filter { editedByID[$0.id] == nil }
+            }
+            result.blocks = blocks
+            if derivedBody { result.body = blocks.map(\.summary).joined(separator: "\n\n") }
+        }
+        guard conflict == nil else { editorFeedback = "\(conflict!)已在其他操作中更新，草稿尚未保存。请保留这份草稿并核对最新内容。"; return nil }
+        if current.title != result.title || current.body != result.body { result.history.append(current.title + "\n\n" + current.body) }
+        return result
+    }
+    @discardableResult func editCard(_ card: RadarCard, baseline: RadarCard? = nil) -> Bool {
+        editorFeedback = nil
+        guard let live = current.cards.first(where: { $0.id == card.id }) else { editorFeedback = "原节点已被删除，草稿尚未保存。"; return false }
+        guard let replacement = editorReplacement(card, baseline: baseline ?? live, current: live) else { return false }
+        var candidate = current
+        guard let i = candidate.cards.firstIndex(where: { $0.id == card.id }) else { return false }
+        candidate.cards[i] = replacement
+        if replacement.status == "archived" {
+            candidate.edges.removeAll { $0.fromID == card.id || $0.toID == card.id }
+            for index in (candidate.groups ?? []).indices { candidate.groups?[index].cardIDs.removeAll { $0 == card.id } }
+        }
+        do { try CanvasDocument(candidate).validate() }
+        catch { editorFeedback = "这次修改无法保存，草稿已保留。"; return false }
+        update { board in board.cards = candidate.cards; board.edges = candidate.edges; board.groups = candidate.groups }
+        return true
     }
     func moveCard(_ id: String, x: Double, y: Double) {
         update { board in
@@ -617,6 +653,7 @@ extension BoardStore {
     var canRedo: Bool { !(current.redoHistory ?? []).isEmpty && voiceSession == nil }
     func undo() {
         guard canUndo, let session = current.editHistory?.last else { return }
+        if splitUndoSessionID == session.id { splitUndoSessionID = nil }
         recordingHistory = false
         update { board in
             board.editHistory?.removeLast()
@@ -640,17 +677,39 @@ extension BoardStore {
         }
         recordingHistory = true
     }
-    func splitBlock(cardID: String, blockID: String) {
-        guard let card = current.cards.first(where: { $0.id == cardID }), let block = card.effectiveBlocks.first(where: { $0.id == blockID }) else { return }
-        var node = RadarCard(title: String((block.text.isEmpty ? "素材" : block.text).prefix(40)), body: block.text, x: card.x + card.width + 70, y: card.y)
-        node.blocks = [block]
-        update { board in
-            guard let i = board.cards.firstIndex(where: { $0.id == cardID }) else { return }
-            board.cards[i].blocks = board.cards[i].effectiveBlocks.filter { $0.id != blockID }
-            board.cards[i].body = board.cards[i].blocks!.filter { $0.kind == "text" }.map(\.text).joined(separator: "\n")
-            board.cards.append(node); board.edges.append(RadarEdge(fromID: cardID, toID: node.id, label: "包含内容"))
+    @discardableResult func saveAndSplitBlock(_ card: RadarCard, baseline: RadarCard, blockID: String) -> Bool {
+        editorFeedback = nil
+        guard recordingHistory, !applyingVoice else { editorFeedback = "当前操作尚未完成，草稿已保留。"; return false }
+        guard let live = current.cards.first(where: { $0.id == card.id }) else { editorFeedback = "原节点已被删除，草稿尚未保存。"; return false }
+        guard var replacement = editorReplacement(card, baseline: baseline, current: live) else { return false }
+        guard replacement.status != "archived", let block = replacement.effectiveBlocks.first(where: { $0.id == blockID }), card.effectiveBlocks.contains(where: { $0.id == blockID }) else {
+            editorFeedback = "这项内容已被移走或放下，草稿尚未保存。"; return false
         }
-        selectedCardID = node.id
+        // Moving the block is itself an edit: do not silently move somebody else's newer revision.
+        let baseBlock = baseline.effectiveBlocks.first { $0.id == blockID }
+        let liveBlock = live.effectiveBlocks.first { $0.id == blockID }
+        let draftBlock = card.effectiveBlocks.first { $0.id == blockID }
+        if liveBlock != baseBlock && liveBlock != draftBlock { editorFeedback = "这项内容已有新修改，草稿尚未保存。请核对后再转为节点。"; return false }
+        var node = RadarCard(title: String((block.text.isEmpty ? "素材" : block.text).prefix(40)), body: block.summary, x: live.x + replacement.width + 70, y: live.y)
+        node.blocks = [block]; node.sourceIDs = live.sourceIDs
+        replacement.blocks = replacement.effectiveBlocks.filter { $0.id != blockID }
+        replacement.body = replacement.blocks!.map(\.summary).joined(separator: "\n\n")
+        if replacement.history == live.history && (replacement.title != live.title || replacement.body != live.body) { replacement.history.append(live.title + "\n\n" + live.body) }
+        var candidate = current
+        guard let index = candidate.cards.firstIndex(where: { $0.id == card.id }) else { return false }
+        candidate.cards[index] = replacement
+        candidate.cards.append(node); candidate.edges.append(RadarEdge(fromID: card.id, toID: node.id, label: "包含内容"))
+        do { try CanvasDocument(candidate).validate() }
+        catch { editorFeedback = "这次转为节点无法完成，草稿已保留。"; return false }
+        let previousSessionID = current.editHistory?.last?.id
+        update { board in board.cards = candidate.cards; board.edges = candidate.edges }
+        guard let sessionID = current.editHistory?.last?.id, sessionID != previousSessionID else { editorFeedback = "操作未完成，草稿已保留。"; return false }
+        selectedCardID = node.id; splitUndoSessionID = sessionID
+        return true
+    }
+    func splitBlock(cardID: String, blockID: String) {
+        guard let card = current.cards.first(where: { $0.id == cardID }) else { return }
+        _ = saveAndSplitBlock(card, baseline: card, blockID: blockID)
     }
     func importCanvas(_ board: RadarBoard) {
         var board = board; board.id = UUID().uuidString; board.remoteID = nil; board.workspaceMode = mode
