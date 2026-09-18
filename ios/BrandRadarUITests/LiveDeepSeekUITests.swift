@@ -59,6 +59,9 @@ final class LiveDeepSeekUITests: XCTestCase {
         XCTAssertTrue(input.waitForExistence(timeout: 10))
         input.tap(); input.typeText(text)
         app.buttons["sendButton"].tap()
-        XCTAssertTrue(app.buttons["fitButton"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["closeChatButton"].waitForExistence(timeout: 5))
+        app.buttons["closeChatButton"].tap()
+        let canvasVisible = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: app.buttons["fitButton"])
+        XCTAssertEqual(XCTWaiter.wait(for: [canvasVisible], timeout: 10), .completed)
     }
 }

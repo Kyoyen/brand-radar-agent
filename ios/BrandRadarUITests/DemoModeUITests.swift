@@ -95,6 +95,8 @@ final class DemoModeUITests: XCTestCase {
         app.buttons["chatButton"].tap()
         XCTAssertTrue(app.buttons["demoStartButton"].waitForExistence(timeout: 5))
         app.buttons["demoStartButton"].tap()
+        XCTAssertTrue(app.buttons["chatViewChangesButton"].waitForExistence(timeout: 12))
+        app.buttons["closeChatButton"].tap()
         XCTAssertTrue(app.buttons["fitButton"].waitForExistence(timeout: 10))
         app.buttons["fitButton"].tap()
         waitFor("Demo must create new visible cards without credentials") {
@@ -113,6 +115,9 @@ final class DemoModeUITests: XCTestCase {
         app.buttons["chatButton"].tap()
         XCTAssertTrue(app.buttons["demoRefineButton"].waitForExistence(timeout: 5))
         app.buttons["demoRefineButton"].tap()
+        XCTAssertTrue(app.buttons["chatViewChangesButton"].waitForExistence(timeout: 12))
+        waitFor("Refining completes before returning to the canvas") { !app.buttons["stopChatButton"].exists }
+        app.buttons["closeChatButton"].tap()
         XCTAssertTrue(app.buttons["fitButton"].waitForExistence(timeout: 10))
         app.buttons["fitButton"].tap()
         waitFor("Refining must update the selected card, keeping its identity") {

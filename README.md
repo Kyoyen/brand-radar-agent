@@ -1,5 +1,5 @@
 <h1 align="center">Brand Radar</h1>
-<p align="center"><strong>把想法说出来，看见它长成一张图。</strong></p>
+<p align="center"><strong>随心画板，AI 帮你落笔。</strong></p>
 <p align="center">Brand Radar Mobile · 一块可以边聊边改的无限画布</p>
 
 <p align="center">
@@ -9,11 +9,13 @@
 </p>
 <p align="center"><sub>原生 iPhone App 模拟器实拍 · 示例内容</sub></p>
 
-**先说清想法，再把关系连起来。** 日常使用 Brief 生成和修改画布；开启「边说边画 · Beta」，口述中的结构会逐步出现，松手后选择保留或放弃。文字、图片、手绘、清单和表格，都能放回它们所属的关系里。
+**先把想法放下来，再把关系连起来。** 日常使用 Brief 生成和修改画布；开启「边说边画 · Beta」，口述中的结构会逐步出现，松手后选择保留或放弃。文字、图片、手绘、清单和表格，都能放回它们所属的关系里。
+
+选中卡片或分组继续聊，AI 在原处改稿。完整阅读页、变化定位、按轮撤回、画布搜索和阅读稿导出，让同一份想法能继续用下去。[当前路线](docs/product/MOBILE-CANVAS-PLAN.md)。
 
 **[认识移动端 →](docs/mobile/README.md)**　[用 Xcode 安装](ios/README.md)　[验收记录](ios/docs/REALTIME-ACCEPTANCE.md)
 
-原生 SwiftUI / UIKit，无需注册，本机保存；通过配置的 Agent API 整理内容。当前为源码预览版，尚未上架 App Store。网页企划桌面继续保留，支持公开资料调查和多轮共同改稿。
+原生 SwiftUI / UIKit，无需注册，本机保存；通过配置的 Agent API 整理内容。已提供个人 TestFlight 内测，尚未公开上架 App Store。网页企划桌面继续保留，支持公开资料调查和多轮共同改稿。
 
 ## 好企划，往往从一句“等一下”开始
 

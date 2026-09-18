@@ -9,6 +9,8 @@ import Foundation
         }
         do {
             passed += try CanvasContentChecks.run()
+            passed += try CanvasReadingChecks.run()
+            passed += try CanvasWorkflowChecks.run()
             passed += try EditorCommitChecks.run(store: store)
             passed += try ArchiveStoreChecks.run(store: store)
             let archiveChecks = try ArchiveChecks.run()

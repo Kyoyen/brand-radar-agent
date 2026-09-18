@@ -65,7 +65,7 @@ enum CanvasRichPreview {
             }
             y += height + 7
         }
-        if prepared.remainingBlocks > 0 { text("还有 \(prepared.remainingBlocks) 项内容", in: CGRect(x: rect.minX, y: rect.maxY - 16, width: rect.width, height: 16), font: .systemFont(ofSize: 10), ink: ink.withAlphaComponent(0.65)) }
+        if prepared.remainingBlocks > 0 { text("还有 \(prepared.remainingBlocks) 项内容", in: CGRect(x: rect.minX, y: rect.maxY - 16, width: rect.width, height: 16), font: .systemFont(ofSize: 12), ink: CanvasStyle.secondary) }
     }
     private static func desiredHeight(_ segment: Segment) -> CGFloat {
         switch segment {
@@ -88,7 +88,7 @@ enum CanvasRichPreview {
             } else { ink.withAlphaComponent(0.55).setStroke(); circle.stroke() }
             text(item.text, in: CGRect(x: box.minX + 23, y: y, width: box.width - 23, height: 21), font: .systemFont(ofSize: 13), ink: ink.withAlphaComponent(item.checked ? 0.55 : 1), strike: item.checked)
         }
-        if total > rows { text("还有 \(total - rows) 项", in: CGRect(x: box.minX + 23, y: box.minY + CGFloat(rows) * 23, width: box.width - 23, height: 16), font: .systemFont(ofSize: 10), ink: ink.withAlphaComponent(0.65)) }
+        if total > rows { text("还有 \(total - rows) 项", in: CGRect(x: box.minX + 23, y: box.minY + CGFloat(rows) * 23, width: box.width - 23, height: 16), font: .systemFont(ofSize: 12), ink: CanvasStyle.secondary) }
     }
     private static func drawTable(_ rows: [[String]], totalRows: Int, totalColumns: Int, in box: CGRect, ink: UIColor) {
         let columns = min(3, rows.map(\.count).max() ?? 0)
@@ -100,10 +100,10 @@ enum CanvasRichPreview {
                 let cell = CGRect(x: box.minX + CGFloat(c) * width, y: box.minY + CGFloat(r) * 25, width: width, height: 25)
                 ink.withAlphaComponent(r == 0 ? 0.09 : 0.025).setFill(); UIRectFill(cell)
                 ink.withAlphaComponent(0.13).setStroke(); UIBezierPath(rect: cell).stroke()
-                text(c < values.count ? values[c] : "", in: cell.insetBy(dx: 5, dy: 5), font: r == 0 ? .boldSystemFont(ofSize: 11) : .systemFont(ofSize: 11), ink: ink)
+                text(c < values.count ? values[c] : "", in: cell.insetBy(dx: 5, dy: 5), font: r == 0 ? .boldSystemFont(ofSize: 13) : .systemFont(ofSize: 13), ink: ink)
             }
         }
-        if totalRows > shown || totalColumns > columns { text("\(totalRows) 行 · \(totalColumns) 列", in: CGRect(x: box.minX, y: box.minY + CGFloat(shown) * 25 + 1, width: box.width, height: 15), font: .systemFont(ofSize: 10), ink: ink.withAlphaComponent(0.65)) }
+        if totalRows > shown || totalColumns > columns { text("\(totalRows) 行 · \(totalColumns) 列", in: CGRect(x: box.minX, y: box.minY + CGFloat(shown) * 25 + 1, width: box.width, height: 15), font: .systemFont(ofSize: 12), ink: CanvasStyle.secondary) }
     }
     private static func text(_ value: String, in rect: CGRect, font: UIFont, ink: UIColor, strike: Bool = false, wrap: Bool = false) {
         let paragraph = NSMutableParagraphStyle(); paragraph.lineBreakMode = wrap ? .byWordWrapping : .byTruncatingTail

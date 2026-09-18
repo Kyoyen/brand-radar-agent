@@ -9,6 +9,8 @@ import SwiftUI
     @Published var restorationNotice: String?
     @Published var editorFeedback: String?
     @Published var splitUndoSessionID: String?
+    @Published var latestChange: CanvasChangeSummary?
+    private var requestTargetLabel: String?
     @Published var activity = ""
     @Published var connected = false
     @Published var modelName = ""
@@ -64,13 +66,36 @@ import SwiftUI
         return connected ? "MAC 已连接" : "等待连接 Mac"
     }
 
-    init() {
+    var chatTargetIsValid: Bool {
+        guard let id = selectedCardID else { return true }
+        return current.visibleCards.contains { $0.id == id } || (current.groups ?? []).contains { $0.id == id }
+    }
+    var chatTargetLabel: String {
+        if isRunning || voiceSession != nil, let label = requestTargetLabel { return label }
+        guard let id = selectedCardID else { return "整张画布" }
+        if let card = current.visibleCards.first(where: { $0.id == id }) { return "卡片 · \(card.title)" }
+        if let group = current.groups?.first(where: { $0.id == id }) {
+            let members = DirectAgent.selectedMembers(id, board: current)
+            return "分组 · \(group.title) · \(current.visibleCards.filter { members.contains($0.id) }.count) 张卡片"
+        }
+        return "原目标已移除，请重新选择"
+    }
+    func clearChatTarget() { guard !isRunning, voiceSession == nil else { return }; selectedCardID = nil }
+    func appendDictation(_ text: String, boardID: String) {
+        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, let index = boards.firstIndex(where: { $0.id == boardID }) else { return }
+        let draft = boards[index].composerDraft ?? ""
+        boards[index].composerDraft = draft.isEmpty ? text : draft + "\n" + text
+        schedulePersist()
+    }
+
+    init(testDirectory: URL? = nil, preferences testingPreferences: UserDefaults? = nil) {
         let arguments = ProcessInfo.processInfo.arguments
-        let resetTesting = arguments.contains("--uitesting")
-        isolatedTesting = resetTesting || arguments.contains("--uitesting-restore")
-        preferences = isolatedTesting ? UserDefaults(suiteName: "com.keyuanshi.brandradar.uitesting")! : .standard
+        let resetTesting = testDirectory == nil && arguments.contains("--uitesting")
+        isolatedTesting = testDirectory != nil || resetTesting || arguments.contains("--uitesting-restore")
+        preferences = testingPreferences ?? (isolatedTesting ? UserDefaults(suiteName: "com.keyuanshi.brandradar.uitesting")! : .standard)
         if resetTesting { preferences.removePersistentDomain(forName: "com.keyuanshi.brandradar.uitesting") }
-        let folder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let folder = testDirectory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         file = folder.appendingPathComponent(isolatedTesting ? "uitest-boards.json" : "radar-boards.json")
         var loadFailure = false
         if !resetTesting, FileManager.default.fileExists(atPath: file.path) {
@@ -111,7 +136,7 @@ import SwiftUI
         }
         // The test defaults use their own endpoint, so Keychain restart behavior can
         // be exercised without loading a user's connection or allowing generation.
-        apiKeyConfigured = !AgentAPIKeychain.read(for: apiConfiguration).isEmpty
+        apiKeyConfigured = testDirectory == nil && !AgentAPIKeychain.read(for: apiConfiguration).isEmpty
         if !boards.contains(where: { $0.mode == mode }) {
             var board = mode == .demo ? DemoCanvas.seed() : BoardTemplate.blank.make()
             board.workspaceMode = mode
@@ -472,9 +497,16 @@ import SwiftUI
     func send(_ content: String) {
         let content = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !content.isEmpty, voiceSession == nil, busyBoardID == nil else { return }
+        guard chatTargetIsValid else { error = "原目标已移除，请重新选择或改为整张画布。"; return }
+        requestTargetLabel = chatTargetLabel; latestChange = nil
         error = nil
         let boardID = selectedID
         let selection = selectedCardID.map { [$0] } ?? []
+        let selectedMembers = selection.first.map { DirectAgent.selectedMembers($0, board: current) } ?? []
+        let macSelection = current.visibleCards.filter { selectedMembers.contains($0.id) }.map(\.id)
+        if mode == .practice, transport == .mac, !selection.isEmpty, macSelection.isEmpty {
+            error = "这个分组还没有卡片，请先添加内容或选择整张画布。"; return
+        }
         let messageID = current.messages.last(where: { $0.role == "user" && $0.content == content && $0.delivery == "failed" })?.id ?? UUID().uuidString
         update(boardID) { board in
             if let i = board.messages.firstIndex(where: { $0.id == messageID }) { board.messages[i].delivery = "pending" }
@@ -499,7 +531,7 @@ import SwiftUI
             do {
                 let remote = try await upload(boardID)
                 let instruction = content + "\n\n[手机画布呈现：按请求生成可阅读的卡片；需要表达逻辑时用 edges 连线并标注关系。已有卡片复用 ID。当前模板：\(boards.first { $0.id == boardID }?.template ?? "")。]"
-                _ = try await request("/api/tasks/\(remote)/messages", method: "POST", body: ["content": instruction, "selected_card_ids": selection])
+                _ = try await request("/api/tasks/\(remote)/messages", method: "POST", body: ["content": instruction, "selected_card_ids": macSelection])
                 setDelivery("accepted", messageID: messageID, boardID: boardID)
                 connected = true
                 let deadline = Date().addingTimeInterval(360)
@@ -513,7 +545,7 @@ import SwiftUI
                         activity = activities.last?["label"] as? String ?? "Agent 正在整理画布…"
                         if result["status"] as? String != "running" {
                             if let text = result["error"] as? String, !text.isEmpty { self.error = text }
-                            if selectedID == boardID { fitRequest += 1 }
+
                             break
                         }
                     } catch {
@@ -546,12 +578,19 @@ import SwiftUI
             do {
                 try await Task.sleep(for: .milliseconds(220))
                 try Task.checkCancellation()
+                if let selectedID, let live = boards.first(where: { $0.id == boardID }),
+                   !live.visibleCards.contains(where: { $0.id == selectedID }), !(live.groups ?? []).contains(where: { $0.id == selectedID }) {
+                    failPendingMessage(messageID, boardID: boardID); error = "原目标已移除，请重新选择。"; return
+                }
+                let previousSessionID = boards.first(where: { $0.id == boardID })?.editHistory?.last?.id
                 update(boardID) { board in
                     let summary = DemoCanvas.apply(prompt: content, selectedID: selectedID, to: &board)
                     if let i = board.messages.firstIndex(where: { $0.id == messageID }) { board.messages[i].delivery = "demo" }
                     board.messages.append(RadarMessage(role: "assistant", content: summary, delivery: "demo"))
                 }
-                if self.selectedID == boardID { fitRequest += 1 }
+                let last = boards.first(where: { $0.id == boardID })?.editHistory?.last
+                let session = last?.id != previousSessionID ? last! : CanvasEditSession(title: "对话", complete: true)
+                latestChange = CanvasChangeSummary(boardID: boardID, session: session, partial: false)
             } catch { failPendingMessage(messageID, boardID: boardID) }
         }
     }
@@ -670,6 +709,19 @@ extension BoardStore {
             board.redoHistory = (board.redoHistory ?? []) + [redo]
         }
         recordingHistory = true
+    }
+    func undoChanges(sessionID: String) {
+        guard voiceSession == nil, let session = current.editHistory?.first(where: { $0.id == sessionID }) else { return }
+        recordingHistory = false
+        update { board in
+            board.editHistory?.removeAll { $0.id == sessionID }
+            let before = board
+            CanvasHistory.apply(session.changes, to: &board, backwards: true)
+            var redo = session; redo.changes = CanvasHistory.diff(board, before)
+            if !redo.changes.isEmpty { board.redoHistory = (board.redoHistory ?? []) + [redo] }
+        }
+        recordingHistory = true
+        if latestChange?.id == sessionID { latestChange = nil }
     }
     func redo() {
         guard canRedo, let session = current.redoHistory?.last else { return }
@@ -822,6 +874,8 @@ extension BoardStore {
     /// A gesture owns one edit session; partial requests never own the whole document.
     func beginVoiceSession(requiresConfirmation: Bool = false) -> Bool {
         guard voiceSession == nil, busyBoardID == nil else { return false }
+        guard chatTargetIsValid else { error = "原目标已移除，请重新选择。"; return false }
+        requestTargetLabel = chatTargetLabel; latestChange = nil
         voiceRequiresConfirmation = requiresConfirmation; voiceAwaitingReview = false
         voiceSession = CanvasEditSession(title: requiresConfirmation ? "边说边画 Beta" : "口述"); voiceSummary = ""; clarification = nil
         voiceBoardID = selectedID; voiceSelectionID = selectedCardID; voiceTaskBase = current
@@ -902,6 +956,7 @@ extension BoardStore {
         }
         guard var session = voiceSession, let boardID = voiceBoardID else { return }
         session.complete = true
+        latestChange = CanvasChangeSummary(boardID: boardID, session: session, partial: !completed)
         voiceSession = nil; voiceBoardID = nil; busyBoardID = nil; activity = ""; voiceAwaitingReview = false
         update(boardID, trackingLocalEdits: false) { board in
             if !session.changes.isEmpty { board.editHistory = Array(((board.editHistory ?? []) + [session]).suffix(60)); board.redoHistory = [] }
@@ -923,6 +978,9 @@ extension BoardStore {
         let correction = voiceNeedsReconcile || (!voiceProcessed.isEmpty && !fullText.hasPrefix(voiceProcessed))
         let prompt = (correction ? "更正本段口述，按下面最新全文修正已有节点，不要重复创建：\n" : "继续整理这段口述，只处理新增语义，复用已存在的节点：\n") + addition
         guard var snapshot = boards.first(where: { $0.id == boardID }) else { return }
+        if let id = voiceSelectionID, !snapshot.visibleCards.contains(where: { $0.id == id }), !(snapshot.groups ?? []).contains(where: { $0.id == id }) {
+            sealVoice(completed: false); error = "原目标已移除，已保留完成的部分。请重新选择后继续。"; return
+        }
         let selectedMembers = DirectAgent.selectedMembers(voiceSelectionID, board: snapshot)
         let selectedCards = snapshot.cards.filter { selectedMembers.contains($0.id) }
         if !selectedCards.isEmpty {
@@ -997,6 +1055,10 @@ extension BoardStore {
         board.groups = groups
     }
     @discardableResult private func applyGenerated(_ result: DirectAgentResult, base: RadarBoard, boardID: String) -> Bool {
+        if let id = voiceSelectionID, let live = boards.first(where: { $0.id == boardID }),
+           !live.visibleCards.contains(where: { $0.id == id }), !(live.groups ?? []).contains(where: { $0.id == id }) {
+            error = "原目标已移除，这一步没有应用。"; return false
+        }
         let update = CanvasUpdate(sessionID: voiceSession?.id ?? UUID().uuidString,
                                   transcriptRevision: voiceSession?.revision ?? 0, sequence: voiceSession?.sequence ?? 0,
                                   cards: result.cards, groups: result.groups, edges: result.edges,
@@ -1072,10 +1134,7 @@ extension BoardStore {
         guard let rect = CanvasGeometry.rect(id, in: current) else { return }
         selectedCardID = id
         let screen = UIScreen.main.bounds
-        update { board in
-            board.zoom = min(1, min((screen.width - 60) / rect.width, (screen.height - 330) / rect.height))
-            board.offsetX = screen.width / 2 - rect.midX * board.zoom
-            board.offsetY = (screen.height - 100) / 2 - rect.midY * board.zoom
-        }
+        let zoom = min(1, min((screen.width - 60) / rect.width, (screen.height - 330) / rect.height))
+        setViewport(x: screen.width / 2 - rect.midX * zoom, y: (screen.height - 100) / 2 - rect.midY * zoom, zoom: zoom)
     }
 }

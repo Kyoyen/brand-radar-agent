@@ -14,11 +14,18 @@ import UniformTypeIdentifiers
                 }
                 .task {
                     #if DEBUG
+                    CanvasUITestFixtures.install(in: store)
                     if ProcessInfo.processInfo.arguments.contains("--uitesting") && ProcessInfo.processInfo.arguments.contains("--canvas-perfcheck") {
                         var result: [String: Any] = [:]
                         do { result["passed"] = try CanvasGeometryChecks.run(); result["benchmark"] = CanvasGeometryChecks.benchmark; result["status"] = "passed" }
                         catch { result["status"] = "failed"; result["error"] = String(describing: error) }
                         let url = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("canvas-performance.json")
+                        try? JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .sortedKeys]).write(to: url, options: .atomic)
+                    }
+                    if ProcessInfo.processInfo.arguments.contains("--uitesting") && ProcessInfo.processInfo.arguments.contains("--canvas-capacitycheck") {
+                        var result: [String: Any]
+                        do { result = try CapacityChecks.run() } catch { result = ["status": "failed", "error": String(describing: error)] }
+                        let url = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("canvas-capacity.json")
                         try? JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .sortedKeys]).write(to: url, options: .atomic)
                     }
                     if ProcessInfo.processInfo.arguments.contains("--canvas-selfcheck") {
@@ -47,6 +54,11 @@ struct WorkspaceView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var sheet: WorkspaceSheet?
     @State private var editingCard: RadarCard?
+    @State private var reading: ReadingTarget?
+    @State private var readerAction: String?
+    @State private var chatDetent: PresentationDetent = .medium
+    @State private var previousCamera: CameraBookmark?
+    @State private var changeIndex = 0
     @State private var sharing: ShareContent?
     @State private var renaming = false
     @State private var boardName = ""
@@ -60,7 +72,9 @@ struct WorkspaceView: View {
     private let ink = Color(red: 0.14, green: 0.19, blue: 0.14)
     var body: some View {
         ZStack {
-            InfiniteCanvas(store: store, bottomInset: dockHeight + 105) { id in
+            InfiniteCanvas(store: store, bottomInset: sheet == .chat && chatDetent == .medium ? max(dockHeight + 105, UIScreen.main.bounds.height * 0.52) : dockHeight + 105,
+                           onRead: { id in reading = ReadingTarget(boardID: store.selectedID, cardID: id) },
+                           onContinue: { id in store.selectedCardID = id; sheet = .chat }) { id in
                 editingCard = store.current.cards.first { $0.id == id }
             }.ignoresSafeArea()
             VStack(spacing: 0) {
@@ -107,6 +121,7 @@ struct WorkspaceView: View {
                     }.padding(14).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
                         .padding(.horizontal, 22).padding(.bottom, 10)
                 }
+                changeBar
                 chatDock
                     .background(GeometryReader { proxy in Color.clear.preference(key: DockHeightKey.self, value: proxy.size.height) })
             }
@@ -116,15 +131,28 @@ struct WorkspaceView: View {
         .sheet(item: $sheet) { item in
             switch item {
             case .templates: TemplateSheet().environmentObject(store)
-            case .chat: ChatSheet().environmentObject(store)
+            case .chat: ChatSheet(onViewChanges: { sheet = nil; if let result = store.latestChange { locateChange(result) } }).environmentObject(store)
+                    .presentationDetents([.medium, .large], selection: $chatDetent)
+                    .presentationBackgroundInteraction(.enabled(upThrough: .medium))
+                    .presentationDragIndicator(.visible)
             case .settings: ConnectionSheet().environmentObject(store)
             case .boards: BoardLibrary().environmentObject(store)
             case .relations: RelationsSheet().environmentObject(store)
+            case .archive: CurrentArchiveSheet().environmentObject(store)
             }
+        }
+        .sheet(item: $reading, onDismiss: {
+            guard let action = readerAction else { return }; readerAction = nil
+            if action == "chat" { sheet = .chat }
+            else { editingCard = store.current.visibleCards.first { $0.id == action } }
+        }) { target in
+            CardReader(store: store, boardID: target.boardID, cardID: target.cardID,
+                       onEdit: { id in readerAction = id; reading = nil },
+                       onContinue: { id in store.selectedCardID = id; readerAction = "chat"; reading = nil })
         }
         .sheet(item: $editingCard) { card in CardEditor(card: card).environmentObject(store) }
         .sheet(item: $sharing) { content in ShareSheet(items: content.items) }
-        .alert("需要留意", isPresented: Binding(get: { store.error != nil && sheet == nil && editingCard == nil }, set: { if !$0 { store.error = nil } })) {
+        .alert("需要留意", isPresented: Binding(get: { store.error != nil && sheet == nil && editingCard == nil && reading == nil }, set: { if !$0 { store.error = nil } })) {
             Button("知道了", role: .cancel) { store.error = nil }
         } message: { Text(store.error ?? "") }
         .alert("给画布起个名字", isPresented: $renaming) {
@@ -141,21 +169,22 @@ struct WorkspaceView: View {
         .onChange(of: editingCard?.id) { _, value in if value != nil { interruptDockVoice() } }
         .onChange(of: sharing?.id) { _, value in if value != nil { interruptDockVoice() } }
         .onChange(of: renaming) { _, value in if value { interruptDockVoice() } }
-        .onChange(of: store.selectedID) { _, _ in interruptDockVoice() }
+        .onChange(of: store.selectedID) { _, _ in interruptDockVoice(); previousCamera = nil; changeIndex = 0 }
+        .onChange(of: reading?.id) { _, value in if value != nil { interruptDockVoice() } }
 
         .onChange(of: dockSpeech.transcript) { _, text in if voiceBoardID != nil && liveDrawing { store.receiveVoice(text) } }
         .onChange(of: dockSpeech.error) { _, value in if let value { interruptDockVoice(); store.error = value } }
         .onAppear { if store.voiceAwaitingReview { liveDrawing = true } }
         .onChange(of: store.voiceAwaitingReview) { _, value in if value { liveDrawing = true } }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .background { interruptDockVoice(); store.interruptVoiceSession(); store.persist() }
+            if phase == .background || (phase == .inactive && (dockSpeech.recording || dockSpeech.finishing)) { interruptDockVoice(); store.interruptVoiceSession(); store.persist() }
             else { Task { await store.checkConnection() } }
         }
     }
     private var header: some View {
         HStack(spacing: 12) {
             Button { sheet = .boards } label: {
-                Image(systemName: "square.stack.3d.up").font(.system(size: 19)).frame(width: 43, height: 43)
+                Image(systemName: "square.stack.3d.up").font(.system(size: 19)).frame(width: 44, height: 44)
             }.background(.white.opacity(0.82), in: Circle()).accessibilityLabel("我的画布").accessibilityIdentifier("boardsButton").disabled(store.voiceSession != nil)
             VStack(alignment: .leading, spacing: 3) {
                 Text("BRAND RADAR").font(.system(size: 9, weight: .bold, design: .monospaced)).tracking(2.4)
@@ -166,6 +195,7 @@ struct WorkspaceView: View {
                 Button("重命名画布", systemImage: "pencil") { boardName = store.current.title; renaming = true }
                 Button("整理画布", systemImage: "rectangle.3.group") { store.arrange() }
                 Button("管理连接关系", systemImage: "arrow.triangle.branch") { sheet = .relations }
+                Button("已放下", systemImage: "archivebox") { sheet = .archive }.accessibilityIdentifier("archiveButton")
                 if store.mode == .practice && store.transport == .mac {
                     Button("刷新画布", systemImage: "arrow.clockwise") { Task { await store.refresh() } }
                 }
@@ -173,10 +203,11 @@ struct WorkspaceView: View {
                 Button("重做", systemImage: "arrow.uturn.forward") { store.redo() }.disabled(!store.canRedo)
                 Button("导出图片", systemImage: "photo") { exportCanvas("png") }
                 Button("导出 PDF", systemImage: "doc") { exportCanvas("pdf") }
+                Button("导出阅读稿", systemImage: "doc.text") { exportCanvas("markdown") }
                 Button("分享可编辑画布", systemImage: "square.and.arrow.up") { exportCanvas("package") }
                 Button("导入画布", systemImage: "square.and.arrow.down") { importingCanvas = true }
-            } label: { Image(systemName: "ellipsis").frame(width: 36, height: 43) }.accessibilityLabel("画布操作")
-            Button { sheet = .settings } label: { Image(systemName: "antenna.radiowaves.left.and.right").font(.system(size: 18)).frame(width: 35, height: 43) }
+            } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }.accessibilityLabel("画布操作")
+            Button { sheet = .settings } label: { Image(systemName: "antenna.radiowaves.left.and.right").font(.system(size: 18)).frame(width: 44, height: 44) }
                 .accessibilityLabel("连接设置").accessibilityIdentifier("settingsButton")
         }.padding(.horizontal, 18).padding(.top, 10)
     }
@@ -263,6 +294,40 @@ struct WorkspaceView: View {
             .shadow(color: .black.opacity(0.06), radius: 18, y: 4)
             .padding(.horizontal, 16).padding(.bottom, 8)
     }
+    @ViewBuilder private var changeBar: some View {
+        if let result = store.latestChange, result.boardID == store.selectedID {
+            VStack(alignment: .leading, spacing: 5) {
+                Text(result.text).font(.subheadline).accessibilityIdentifier("changeSummary")
+                HStack(spacing: 14) {
+                    if !result.targetIDs.isEmpty {
+                        Button("查看变化") { locateChange(result) }.accessibilityIdentifier("viewChangesButton")
+                    }
+                    if previousCamera?.boardID == store.selectedID {
+                        Button("返回原处") {
+                            if let camera = previousCamera { store.setViewport(x: camera.x, y: camera.y, zoom: camera.zoom); store.selectedCardID = camera.selection }
+                            previousCamera = nil
+                        }.accessibilityIdentifier("returnCameraButton")
+                    }
+                    Spacer(minLength: 0)
+                    if store.current.editHistory?.contains(where: { $0.id == result.id }) == true {
+                        Button("撤回本轮") { store.undoChanges(sessionID: result.id) }.disabled(store.voiceSession != nil)
+                            .accessibilityIdentifier("undoRoundButton")
+                    }
+                    Button { store.latestChange = nil; previousCamera = nil } label: { Image(systemName: "xmark") }
+                        .accessibilityLabel("收起变化提示")
+                }.font(.subheadline).buttonStyle(.borderless).frame(minHeight: 44)
+            }.padding(.horizontal, 16).padding(.top, 12).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
+                .padding(.horizontal, 20).padding(.bottom, 10)
+        }
+    }
+    private func locateChange(_ result: CanvasChangeSummary) {
+        let targets = result.targetIDs.filter { id in store.current.visibleCards.contains { $0.id == id } || (store.current.groups ?? []).contains { $0.id == id } }
+        guard !targets.isEmpty else { return }
+        if previousCamera == nil {
+            previousCamera = CameraBookmark(boardID: store.selectedID, x: store.current.offsetX, y: store.current.offsetY, zoom: store.current.zoom, selection: store.selectedCardID)
+        }
+        store.focusNode(targets[changeIndex % targets.count]); changeIndex += 1
+    }
     private var voiceTitle: String {
         if cancellingVoice { return "松开取消" }
         if dockSpeech.finishing { return "正在转写…" }
@@ -287,9 +352,12 @@ struct WorkspaceView: View {
         dockSpeech.finish { text in
             voiceBoardID = nil
             let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard scenePhase == .active, store.selectedID == boardID else { store.interruptVoiceSession(); return }
+            guard scenePhase == .active, store.selectedID == boardID else {
+                if liveDrawing { store.interruptVoiceSession() } else { store.appendDictation(text, boardID: boardID) }
+                return
+            }
             if liveDrawing { store.finishVoiceSession(text) }
-            else if !text.isEmpty { store.send(text) }
+            else if !text.isEmpty { store.appendDictation(text, boardID: boardID); sheet = .chat }
         }
     }
     private func cancelDockVoice() {
@@ -297,24 +365,25 @@ struct WorkspaceView: View {
         dockSpeech.stop(); store.cancelVoiceSession()
     }
     private func interruptDockVoice() {
+        let interruptedBoardID = voiceBoardID
         let wasRecording = voiceBoardID != nil || holdingVoice || dockSpeech.recording || dockSpeech.finishing
         holdingVoice = false; cancellingVoice = false; voiceBoardID = nil
         dockSpeech.stop()
         if wasRecording {
             if liveDrawing { store.interruptVoiceSession() }
-            else if !dockSpeech.transcript.isEmpty { store.setComposerDraft(dockSpeech.transcript) }
+            else if let id = interruptedBoardID { store.appendDictation(dockSpeech.transcript, boardID: id) }
         }
     }
     private func exportCanvas(_ kind: String) {
         do {
-            let url = try kind == "png" ? CanvasExport.png(board: store.current) : kind == "pdf" ? CanvasExport.pdf(board: store.current) : CanvasExport.package(board: store.current)
+            let url = try kind == "png" ? CanvasExport.png(board: store.current) : kind == "pdf" ? CanvasExport.pdf(board: store.current) : kind == "markdown" ? CanvasExport.markdown(board: store.current) : CanvasExport.package(board: store.current)
             sharing = ShareContent(items: [url])
         } catch { store.error = error.localizedDescription }
     }
 
 }
 
-enum WorkspaceSheet: String, Identifiable { case templates, chat, settings, boards, relations; var id: String { rawValue } }
+enum WorkspaceSheet: String, Identifiable { case templates, chat, settings, boards, relations, archive; var id: String { rawValue } }
 struct ShareContent: Identifiable { let id = UUID(); let items: [Any] }
 struct ShareSheet: UIViewControllerRepresentable {
     var items: [Any]
@@ -326,3 +395,6 @@ private struct DockHeightKey: PreferenceKey {
     static var defaultValue: CGFloat = 120
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
+
+private struct ReadingTarget: Identifiable { let boardID: String; let cardID: String; var id: String { boardID + ":" + cardID } }
+private struct CameraBookmark { let boardID: String; let x: Double; let y: Double; let zoom: Double; let selection: String? }

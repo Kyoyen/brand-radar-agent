@@ -1,6 +1,10 @@
 import SwiftUI
 
 enum RadarPalette {
+    static let textPrimary = Color(red: 0.12, green: 0.18, blue: 0.14)
+    static let textSecondary = Color(red: 0.29, green: 0.34, blue: 0.29)
+    static let borderSubtle = textPrimary.opacity(0.15)
+    static let minimumHitSize: CGFloat = 44
     static let canvas = Color(red: 0.965, green: 0.96, blue: 0.935)
     static let paper = Color(red: 0.995, green: 0.99, blue: 0.975)
     static let green = Color(red: 0.24, green: 0.39, blue: 0.25)
@@ -49,46 +53,46 @@ struct TemplateSheet: View {
 struct BoardLibrary: View {
     @EnvironmentObject private var store: BoardStore
     @Environment(\.dismiss) private var dismiss
-    @State private var restoring: RadarCard?
+    @State private var search = ""
+    private var matches: [RadarBoard] {
+        let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        return store.visibleBoards.filter { board in
+            query.isEmpty || board.title.localizedStandardContains(query) || board.question.localizedStandardContains(query)
+                || board.cards.contains { $0.title.localizedStandardContains(query) || $0.body.localizedStandardContains(query) || $0.effectiveBlocks.contains { $0.summary.localizedStandardContains(query) } }
+        }.sorted { $0.updated == $1.updated ? $0.id < $1.id : $0.updated > $1.updated }
+    }
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 12) {
-                    ForEach(store.visibleBoards) { board in
+                LazyVStack(spacing: 12) {
+                    if matches.isEmpty {
+                        ContentUnavailableView(search.isEmpty ? "还没有画布" : "没有找到画布", systemImage: search.isEmpty ? "square.stack" : "magnifyingglass", description: Text(search.isEmpty ? "从一个想法开始。" : "试试标题或正文中的其他词。"))
+                            .accessibilityIdentifier("boardSearchEmpty")
+                    }
+                    ForEach(matches) { board in
                         Button { store.select(board); dismiss() } label: {
                             HStack(spacing: 17) {
-                                ZStack {
-                                    RoundedRectangle(cornerRadius: 9).fill(RadarPalette.sage).frame(width: 39, height: 49).rotationEffect(.degrees(-10)).offset(x: -3)
-                                    RoundedRectangle(cornerRadius: 9).fill(Color(board.visibleCards.first?.uiColor ?? .white)).frame(width: 37, height: 47).rotationEffect(.degrees(5)).offset(x: 4)
-                                    Image(systemName: "scribble").font(.system(size: 21, weight: .light)).foregroundStyle(RadarPalette.green)
-                                }.frame(width: 54, height: 61)
+                                Image(systemName: "square.stack").font(.title2).foregroundStyle(RadarPalette.green).frame(width: 44, height: 52)
                                 VStack(alignment: .leading, spacing: 7) {
-                                    Text(board.title).font(.system(size: 16, weight: .semibold)).foregroundStyle(.primary).lineLimit(2)
-                                    Text("\(board.template) · \(board.visibleCards.count) 张卡片").font(.system(size: 11)).foregroundStyle(.secondary)
-                                }
-                                Spacer(minLength: 4)
+                                    Text(board.title).font(.headline).foregroundStyle(.primary).lineLimit(2)
+                                    Text(board.visibleCards.first?.effectiveBlocks.first?.summary ?? board.question)
+                                        .font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
+                                    HStack {
+                                        Text("\(board.visibleCards.count) 张卡片")
+                                        Text(board.updated, format: .dateTime.month().day().hour().minute())
+                                    }.font(.caption).foregroundStyle(.secondary)
+                                }.frame(maxWidth: .infinity, alignment: .leading)
                                 Image(systemName: board.id == store.selectedID ? "checkmark.circle.fill" : "chevron.right")
-                                    .font(.system(size: board.id == store.selectedID ? 19 : 11)).foregroundStyle(board.id == store.selectedID ? RadarPalette.green : .secondary)
-                            }.padding(18).background(RadarPalette.paper, in: RoundedRectangle(cornerRadius: 23))
-                                .contentShape(Rectangle())
-                        }.buttonStyle(.plain)
-                    }
-                    if store.current.cards.contains(where: { $0.status == "archived" }) {
-                        VStack(alignment: .leading, spacing: 14) {
-                            Text("已放下").font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
-                            ForEach(store.current.cards.filter { $0.status == "archived" }) { card in
-                                Button { restoring = card } label: {
-                                    HStack { Text(card.title).lineLimit(1); Spacer(); Image(systemName: "arrow.uturn.backward") }
-                                        .font(.subheadline).padding(.vertical, 6).contentShape(Rectangle())
-                                }.disabled(store.isRunning)
-                            }
-                        }.padding(20).background(.white.opacity(0.5), in: RoundedRectangle(cornerRadius: 23)).padding(.top, 10)
+                                    .foregroundStyle(RadarPalette.green)
+                            }.padding(18).background(RadarPalette.paper, in: RoundedRectangle(cornerRadius: 23)).contentShape(Rectangle())
+                        }.buttonStyle(.plain).accessibilityIdentifier("board_\(board.id)")
                     }
                 }.padding(20)
             }.background(RadarPalette.canvas)
+                .searchable(text: $search, prompt: "搜索标题或正文")
                 .navigationTitle(store.mode == .demo ? "示例画布" : "我的画布").navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
-        }.sheet(item: $restoring) { CardEditor(card: $0).environmentObject(store) }
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() }.accessibilityIdentifier("closeLibraryButton") } }
+        }
     }
 }
 
@@ -213,25 +217,44 @@ struct CardEditor: View {
 }
 
 struct ChatSheet: View {
+    var onViewChanges: (() -> Void)? = nil
     @EnvironmentObject private var store: BoardStore
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var speech = SpeechInput()
     @State private var input = ""
     @State private var speechPrefix = ""
+    @State private var followsLatest = true
+    @State private var userScrolling = false
+    @State private var hasNewReply = false
+    @State private var readAnchor: String?
+    @State private var viewportHeight: CGFloat = 0
+    @State private var measuredBottom: CGFloat = 0
+    private struct BottomPosition: PreferenceKey {
+        static var defaultValue: CGFloat = 0
+        static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+    }
+    private struct MessagePositions: PreferenceKey {
+        static var defaultValue: [String: CGFloat] = [:]
+        static func reduce(value: inout [String: CGFloat], nextValue: () -> [String: CGFloat]) { value.merge(nextValue(), uniquingKeysWith: { _, new in new }) }
+    }
+    @SceneStorage("chatReadingPositions") private var savedReadingPositions = "{}"
+    @State private var draftBoardID = ""
     @FocusState private var focused: Bool
     private let suggestions = [("想方向", "围绕当前 Brief，展开三个有差异的创意方向。"), ("写内容", "把当前想法写成一份可以分享的内容稿。"), ("理结构", "整理当前画布，连起重要的逻辑关系。")]
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                if let card = store.selectedCard {
-                    HStack(spacing: 9) {
-                        Image(systemName: card.symbol)
-                        Text(card.title).lineLimit(1)
-                        Spacer()
-                        Button { store.selectedCardID = nil } label: { Image(systemName: "xmark") }.accessibilityLabel("取消选择")
-                    }.font(.system(size: 12)).padding(14).background(Color(card.uiColor), in: RoundedRectangle(cornerRadius: 16)).padding(.horizontal, 20).padding(.top, 8)
-                }
+                HStack(spacing: 9) {
+                    Image(systemName: store.selectedCardID == nil ? "square.stack" : "scope")
+                    Text(store.chatTargetLabel).lineLimit(2).accessibilityIdentifier("chatTargetLabel")
+                    Spacer(minLength: 4)
+                    if store.selectedCardID != nil {
+                        Button { store.clearChatTarget() } label: { Image(systemName: "xmark").frame(width: 44, height: 44) }
+                            .accessibilityLabel("取消选择").disabled(store.isRunning)
+                    }
+                }.font(.subheadline).padding(.horizontal, 16).padding(.vertical, 4)
+                    .background(RadarPalette.sage, in: RoundedRectangle(cornerRadius: 16)).padding(.horizontal, 16).padding(.top, 8)
                 ScrollViewReader { proxy in
                     ScrollView {
                         VStack(alignment: .leading, spacing: 20) {
@@ -239,9 +262,9 @@ struct ChatSheet: View {
                                 VStack(alignment: .leading, spacing: 16) {
                                     Text("示例画布").font(.system(size: 13, weight: .medium)).foregroundStyle(.secondary)
                                     HStack(spacing: 9) {
-                                        demoAction("展开画布", icon: "square.grid.2x2", id: "demoStartButton") { store.selectedCardID = nil; store.send(DemoCanvas.startPrompt); dismiss() }
-                                        demoAction("改写这张", icon: "pencil.line", id: "demoRefineButton") { store.send(DemoCanvas.refinePrompt); dismiss() }.disabled(store.selectedCardID == nil)
-                                        demoAction("写内容稿", icon: "text.alignleft", id: "demoCopyButton") { store.send(DemoCanvas.copyPrompt); dismiss() }
+                                        demoAction("展开画布", icon: "square.grid.2x2", id: "demoStartButton") { store.clearChatTarget(); submit(DemoCanvas.startPrompt) }
+                                        demoAction("改写这张", icon: "pencil.line", id: "demoRefineButton") { submit(DemoCanvas.refinePrompt) }.disabled(store.selectedCardID == nil)
+                                        demoAction("写内容稿", icon: "text.alignleft", id: "demoCopyButton") { submit(DemoCanvas.copyPrompt) }
                                     }
                                 }.padding(.vertical, 12).disabled(store.busyBoardID != nil)
                             } else if store.current.messages.isEmpty {
@@ -260,17 +283,74 @@ struct ChatSheet: View {
                             ForEach(store.current.messages) { message in
                                 messageBubble(message)
                                     .id(message.id).accessibilityIdentifier("message_\(message.id)")
+                                    .background(GeometryReader { geometry in
+                                        Color.clear.preference(key: MessagePositions.self, value: [message.id: geometry.frame(in: .named("chatScroll")).minY])
+                                    })
                             }
                             if store.isRunning { HStack { ProgressView(); Text(store.activity).font(.caption) }.padding(.vertical, 8) }
-                            Color.clear.frame(height: 1).id("end")
+                            Color.clear.frame(height: 1).id("end").background(GeometryReader { geometry in
+                                Color.clear.preference(key: BottomPosition.self, value: geometry.frame(in: .named("chatScroll")).maxY)
+                            })
                         }.padding(20)
                     }
-                    .onAppear { DispatchQueue.main.async { proxy.scrollTo("end", anchor: .bottom) } }
-                    .onChange(of: store.current.messages.count) { _, _ in withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("end", anchor: .bottom) } }
-                    .onChange(of: store.current.messages.last?.content) { _, _ in proxy.scrollTo("end", anchor: .bottom) }
-                    .onChange(of: store.isRunning) { _, _ in proxy.scrollTo("end", anchor: .bottom) }
+                    .accessibilityIdentifier("chatHistory")
+                    #if DEBUG
+                    .accessibilityValue("follow=\(followsLatest) drag=\(userScrolling) height=\(viewportHeight) bottom=\(measuredBottom) anchor=\(readAnchor ?? "nil")")
+                    #endif
+                    .onPreferenceChange(MessagePositions.self) { positions in
+                        readAnchor = positions.filter { $0.value >= -20 }.min(by: { $0.value < $1.value })?.key
+                    }
+                    .coordinateSpace(name: "chatScroll")
+                    .background(GeometryReader { geometry in
+                        Color.clear.onAppear { viewportHeight = geometry.size.height }.onChange(of: geometry.size.height) { _, height in
+                            viewportHeight = height
+                            if followsLatest && !userScrolling { DispatchQueue.main.async { proxy.scrollTo("end", anchor: .bottom) } }
+                        }
+                    })
+                    .simultaneousGesture(DragGesture().onChanged { _ in userScrolling = true })
+                    .onPreferenceChange(BottomPosition.self) { bottom in
+                        measuredBottom = bottom
+                        if userScrolling {
+                            followsLatest = bottom <= viewportHeight + 64 && bottom >= 0
+                            if followsLatest { hasNewReply = false }
+                        } else if followsLatest && bottom > viewportHeight + 8 && viewportHeight > 0 {
+                            // Follow after the new bubble and result bar have actually laid out.
+                            DispatchQueue.main.async { proxy.scrollTo("end", anchor: .bottom) }
+                        }
+                    }
+                    .onAppear {
+                        let positions = (try? JSONDecoder().decode([String: String].self, from: Data(savedReadingPositions.utf8))) ?? [:]
+                        if let saved = positions[store.selectedID], store.current.messages.contains(where: { $0.id == saved }) {
+                            followsLatest = false
+                            DispatchQueue.main.async { proxy.scrollTo(saved, anchor: .top) }
+                        } else { DispatchQueue.main.async { proxy.scrollTo("end", anchor: .bottom) } }
+                    }
+                    .onChange(of: store.current.messages.last?.content) { _, _ in
+                        if followsLatest { userScrolling = false; DispatchQueue.main.async { proxy.scrollTo("end", anchor: .bottom) } }
+                        else { hasNewReply = true }
+                    }
+                    .onChange(of: store.current.messages.count) { _, _ in
+                        if followsLatest { userScrolling = false; DispatchQueue.main.async { proxy.scrollTo("end", anchor: .bottom) } }
+                        else { hasNewReply = true }
+                    }
+                    .onChange(of: store.isRunning) { _, _ in
+                        if followsLatest { userScrolling = false; DispatchQueue.main.async { proxy.scrollTo("end", anchor: .bottom) } }
+                    }
+                    .overlay(alignment: .bottom) {
+                        if hasNewReply {
+                            Button { userScrolling = false; followsLatest = true; hasNewReply = false; withAnimation { proxy.scrollTo("end", anchor: .bottom) } } label: {
+                                Label("有新回复", systemImage: "arrow.down").font(.subheadline).padding(12).background(RadarPalette.paper, in: Capsule()).shadow(color: .black.opacity(0.1), radius: 6)
+                            }.accessibilityIdentifier("newReplyButton").padding(.bottom, 6)
+                        }
+                    }
                 }
+
                 VStack(spacing: 10) {
+                    if let result = store.latestChange, result.boardID == store.selectedID {
+                        Button { onViewChanges?() } label: {
+                            HStack { Text(result.text).font(.subheadline).multilineTextAlignment(.leading); Spacer(); Image(systemName: "arrow.up.right") }.frame(minHeight: 44)
+                        }.accessibilityLabel("查看变化，" + result.text).accessibilityIdentifier("chatViewChangesButton")
+                    }
                     if let error = store.error {
                         HStack(alignment: .top) {
                             Text(error).font(.caption).foregroundStyle(.orange).accessibilityIdentifier("chatError")
@@ -281,30 +361,64 @@ struct ChatSheet: View {
                     if speech.recording {
                         HStack { Image(systemName: "waveform").symbolEffect(.variableColor); Text("正在听…").font(.caption) }.foregroundStyle(.red)
                     }
+                    if store.isRunning {
+                        Button { Task { await store.stop() } } label: { Label("停止整理", systemImage: "stop.circle").frame(minHeight: 44) }
+                            .accessibilityIdentifier("stopChatButton")
+                    }
                     HStack(alignment: .bottom, spacing: 12) {
                         Button {
-                            if speech.recording { speech.finish { text in input = speechPrefix + text } }
+                            if speech.recording { speech.finish { text in if !text.isEmpty { input = speechPrefix + text }; focused = true } }
                             else { speechPrefix = input.isEmpty ? "" : input + "\n"; Task { await speech.start(requireOnDevice: store.mode == .demo) } }
-                        } label: { Image(systemName: speech.recording ? "stop.circle.fill" : "mic").font(.system(size: 21)).frame(width: 34, height: 42) }
+                        } label: { Image(systemName: speech.recording ? "stop.circle.fill" : "mic").font(.system(size: 21)).frame(width: 44, height: 44) }
                             .accessibilityLabel(speech.recording ? "结束听写" : "开始听写").disabled(speech.starting || speech.finishing)
                         TextField("说出你的想法", text: $input, axis: .vertical).lineLimit(1...6).focused($focused).padding(.vertical, 11).accessibilityIdentifier("composerInput")
                         Button {
-                            speech.stop(); store.send(input)
-                            if store.busyBoardID != nil { input = ""; focused = false; dismiss() }
-                        } label: { Image(systemName: "arrow.up").bold().foregroundStyle(.white).frame(width: 42, height: 42).background(RadarPalette.green, in: Circle()) }
-                            .disabled(input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || store.busyBoardID != nil || speech.recording || speech.finishing).accessibilityIdentifier("sendButton")
+                            submit(input)
+                        } label: { Image(systemName: "arrow.up").bold().foregroundStyle(.white).frame(width: 44, height: 44).background(RadarPalette.green, in: Circle()) }
+                            .disabled(input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || store.busyBoardID != nil || speech.recording || speech.finishing || !store.chatTargetIsValid).accessibilityIdentifier("sendButton")
                     }.padding(10).background(RadarPalette.paper, in: RoundedRectangle(cornerRadius: 27))
                         .overlay(RoundedRectangle(cornerRadius: 27).stroke(.black.opacity(0.05)))
                 }.padding(.horizontal, 16).padding(.bottom, 12)
             }.background(RadarPalette.canvas).navigationTitle(store.mode == .demo ? "示例画布" : "对话").navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() }.accessibilityIdentifier("closeChatButton") } }
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) { Button("收起") { dismiss() }.accessibilityIdentifier("closeChatButton") }
+                    ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("完成输入") { focused = false }.accessibilityIdentifier("hideChatKeyboardButton") }
+                }
         }
-        .onAppear { input = store.current.composerDraft ?? "" }
-        .onChange(of: input) { _, text in store.setComposerDraft(text) }
-        .onChange(of: speech.transcript) { _, text in input = speechPrefix + text }
-        .onDisappear { speech.stop() }
-        .onChange(of: scenePhase) { _, phase in if phase == .background { speech.stop() } }
+        .onAppear {
+            draftBoardID = store.selectedID; input = store.current.composerDraft ?? ""
+            #if DEBUG
+            CanvasUITestFixtures.scheduleHistoryReply(in: store)
+            #endif
+        }
+        .onChange(of: store.selectedID) { _, boardID in
+            speech.stop(); saveReadingPosition(); draftBoardID = boardID
+            input = store.current.composerDraft ?? ""; readAnchor = nil
+            followsLatest = true; userScrolling = false; hasNewReply = false
+        }
+        .onChange(of: input) { _, text in if draftBoardID == store.selectedID { store.setComposerDraft(text) } }
+        .onChange(of: speech.transcript) { _, text in if !text.isEmpty, draftBoardID == store.selectedID { input = speechPrefix + text } }
+        .onDisappear {
+            speech.stop()
+            if draftBoardID == store.selectedID { store.setComposerDraft(input) }
+            saveReadingPosition()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .background || (phase == .inactive && (speech.recording || speech.finishing)) { speech.stop() }
+        }
         .alert("语音输入", isPresented: Binding(get: { speech.error != nil }, set: { if !$0 { speech.error = nil } })) { Button("知道了") { speech.error = nil } } message: { Text(speech.error ?? "") }
+    }
+    private func saveReadingPosition() {
+        guard !draftBoardID.isEmpty else { return }
+        var positions = (try? JSONDecoder().decode([String: String].self, from: Data(savedReadingPositions.utf8))) ?? [:]
+        positions[draftBoardID] = followsLatest ? nil : readAnchor
+        if let data = try? JSONEncoder().encode(positions), let text = String(data: data, encoding: .utf8) { savedReadingPositions = text }
+    }
+    private func submit(_ text: String) {
+        speech.stop(); userScrolling = false; followsLatest = true; hasNewReply = false
+        store.send(text)
+        // A rejected submission keeps its editable draft. An accepted request remains in this panel.
+        if store.busyBoardID != nil { input = ""; focused = false }
     }
     private func messageBubble(_ message: RadarMessage) -> some View {
         let fromUser = message.role == "user"

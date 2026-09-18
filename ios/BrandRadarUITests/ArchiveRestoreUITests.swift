@@ -14,8 +14,8 @@ final class ArchiveRestoreUITests: XCTestCase {
         return title
     }
     private func restore(_ title: String, app: XCUIApplication, expectsMissingRelations: Bool = false) {
-        app.buttons["boardsButton"].tap()
-        let row = app.buttons[title]; if !row.isHittable { app.swipeUp() }
+        app.buttons["画布操作"].tap(); app.buttons["archiveButton"].tap()
+        let row = app.buttons["archived_demo_idea"]; if !row.isHittable { app.swipeUp() }
         XCTAssertTrue(row.waitForExistence(timeout: 5)); row.tap()
         if !app.buttons["恢复"].isHittable { app.swipeUp() }; app.buttons["恢复"].tap()
         if expectsMissingRelations {
@@ -48,7 +48,7 @@ final class ArchiveRestoreUITests: XCTestCase {
     }
     func testRestoreSkipsDeletedEndpointAndParent() {
         let app = launch(), title = archiveIdea(app)
-        app.buttons["card_demo_brief"].tap(); app.buttons["canvas_删除"].tap()
+        app.buttons["card_demo_brief"].tap(); app.buttons["canvas_cardMore"].tap(); app.buttons["删除"].tap()
         let parent = app.buttons["group_demo_creation"]
         parent.coordinate(withNormalizedOffset: CGVector(dx: 0.35, dy: 0.5)).tap()
         app.buttons["canvas_删除"].tap(); app.buttons["仅移除分组框"].tap()

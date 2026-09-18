@@ -167,19 +167,36 @@ enum CanvasHistory {
             else { derivedBodies.remove(delta.id) }
         }
         var deferredRemovals: [CanvasFieldChange] = []
+        var deferredGroupRemovals: [CanvasFieldChange] = []
         for delta in backwards ? Array(changes.reversed()) : changes {
             switch delta.object {
             case "node":
                 if delta.field == "blocks" { applyBlocks(delta, to: &board, changes: changes, backwards: backwards) }
                 else if delta.field == "*", (backwards ? delta.before : delta.after) == nil { deferredRemovals.append(delta) }
                 else { apply(delta, values: &board.cards, backwards: backwards) }
-            case "group": var groups = board.groups ?? []; apply(delta, values: &groups, backwards: backwards); board.groups = groups
+            case "group":
+                if delta.field == "*", (backwards ? delta.before : delta.after) == nil { deferredGroupRemovals.append(delta) }
+                else { var groups = board.groups ?? []; apply(delta, values: &groups, backwards: backwards); board.groups = groups }
             default: apply(delta, values: &board.edges, backwards: backwards)
             }
         }
+        var remainingGroups = deferredGroupRemovals
+        while !remainingGroups.isEmpty {
+            let count = (board.groups ?? []).count
+            for removal in remainingGroups {
+                guard !board.edges.contains(where: { $0.fromID == removal.id || $0.toID == removal.id }),
+                      !(board.groups ?? []).contains(where: { $0.id != removal.id && ($0.groupIDs ?? []).contains(removal.id) }) else { continue }
+                var groups = board.groups ?? []; apply(removal, values: &groups, backwards: backwards); board.groups = groups
+            }
+            if count == (board.groups ?? []).count { break }
+            remainingGroups.removeAll { removal in !(board.groups ?? []).contains { $0.id == removal.id } }
+        }
         for removal in deferredRemovals {
             guard let data = backwards ? removal.after : removal.before, let node = try? JSONDecoder().decode(RadarCard.self, from: data) else { continue }
-            var safeToRemove = true
+            // Own inverse edges/memberships were processed above. Any references still
+            // present may have been created later by the user and must keep their endpoint.
+            var safeToRemove = !board.edges.contains { $0.fromID == node.id || $0.toID == node.id }
+                && !(board.groups ?? []).contains { $0.cardIDs.contains(node.id) }
             for delta in changes where delta.object == "node" && delta.field == "blocks" && delta.id != node.id {
                 let expected = blockSide(delta, data: backwards ? delta.after : delta.before, changes: changes, before: !backwards, fallback: nil)
                 let replacement = blockSide(delta, data: backwards ? delta.before : delta.after, changes: changes, before: backwards, fallback: nil)

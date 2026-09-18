@@ -115,6 +115,38 @@ enum CanvasContentChecks {
         do { _ = try CanvasAssets.shared.agentImages(for: missingBoard.cards[0]); throw Failure(message: "missing original silently sent to vision") }
         catch let error as CanvasAssets.VisualError { try expect(error.localizedDescription.contains("原件"), "missing visual original reports readable error") }
         try expect(CanvasAssets.shared.thumbnail(for: missingBoard.cards[0].blocks![1].attachment!) != nil, "missing original leaves thumbnail usable")
+        var draftCard = RadarCard(id: "draft", title: "组内正文", body: "过时摘要不应出现", history: ["HIDDEN_PRIVATE_HISTORY"])
+        draftCard.blocks = [CanvasBlock(id: "text", kind: "text", text: "当前有效正文"),
+                            CanvasBlock(id: "list", kind: "checklist", items: [CanvasChecklistItem(text: "已完成事项", isChecked: true), CanvasChecklistItem(text: "未完成事项")]),
+                            CanvasBlock(id: "table", kind: "table", rows: [["列一", "列二"], ["带|竖线", "跨\n两行"], ["不齐的行"]]),
+                            CanvasBlock(id: "link", kind: "link", text: "外部参考", url: "https://example.com/only-link"),
+                            CanvasBlock(id: "attachment", kind: "image", attachment: photo)]
+        draftCard.sourceIDs = ["reference"]
+        var nestedCard = RadarCard(id: "nested", title: "子组内容", body: "子组当前正文"); nestedCard.sourceIDs = ["reference"]
+        let archivedCard = RadarCard(id: "archived", title: "HIDDEN_ARCHIVED", body: "HIDDEN_ARCHIVED_BODY", status: "archived")
+        let ungroupedCard = RadarCard(id: "ungrouped", title: "散落内容", body: "散落当前正文")
+        var draft = RadarBoard(title: "可读工作稿", question: "本次问题", template: "空白", cards: [ungroupedCard, nestedCard, draftCard, archivedCard], edges: [RadarEdge(id: "visible", fromID: "draft", toID: "nested", label: "后续"), RadarEdge(id: "hidden", fromID: "draft", toID: "archived", label: "HIDDEN_EDGE")])
+        draft.groups = [RadarGroup(id: "child", title: "子分组", cardIDs: ["nested"]), RadarGroup(id: "parent", title: "父分组", cardIDs: ["draft", "draft", "archived"], groupIDs: ["child", "child"])]
+        draft.sources = [RadarSource(id: "reference", title: "来源一", url: "https://example.com/source", excerpt: ""), RadarSource(id: "unused", title: "HIDDEN_UNREFERENCED_SOURCE", url: "https://example.com/private", excerpt: "")]
+        draft.messages = [RadarMessage(role: "user", content: "HIDDEN_PRIVATE_CHAT_AND_KEY")]
+        let markdown = CanvasExport.markdownText(board: draft)
+        func position(_ needle: String) -> Int { markdown.range(of: needle).map { markdown.distance(from: markdown.startIndex, to: $0.lowerBound) } ?? Int.max }
+        try expect(position("## 父分组") < position("### 组内正文") && position("### 组内正文") < position("### 子分组") && position("### 子分组") < position("## 未分组内容"), "Markdown follows root cards child groups then ungrouped order")
+        try expect(markdown.components(separatedBy: "### 组内正文").count == 2 && markdown.components(separatedBy: "#### 子组内容").count == 2, "Markdown emits each node once despite repeated membership")
+        try expect(markdown.contains("当前有效正文") && !markdown.contains("过时摘要不应出现") && markdown.contains("散落当前正文"), "Markdown uses current rich content and legacy body")
+        try expect(markdown.contains("- [x] 已完成事项") && markdown.contains("- [ ] 未完成事项"), "Markdown preserves checklist decisions")
+        try expect(markdown.contains("带\\|竖线") && markdown.contains("跨<br>两行") && markdown.contains("| 不齐的行 |  |"), "Markdown escapes table delimiters and pads ragged rows")
+        try expect(markdown.contains("https://example.com/only-link") && markdown.contains("已保存链接，暂无摘录"), "Markdown retains traceable links without claiming they were read")
+        try expect(markdown.components(separatedBy: "### 来源一").count == 2 && !markdown.contains("HIDDEN_"), "Markdown excludes archived content private history chat and unused sources")
+        try expect(markdown.contains("附件：") && markdown.contains(photo.name) && !markdown.contains(photo.path) && !markdown.contains(photo.thumbnailPath ?? "UNLIKELY_SENTINEL"), "Markdown describes attachments without local paths")
+        var unsafe = draft
+        unsafe.cards[0].blocks = [CanvasBlock(kind: "link", url: "https://user:PRIVATE_CREDENTIAL@example.com/source"), CanvasBlock(kind: "link", url: "file:///PRIVATE_LOCAL_PATH")]
+        let sanitized = CanvasExport.markdownText(board: unsafe)
+        try expect(!sanitized.contains("PRIVATE_CREDENTIAL") && !sanitized.contains("PRIVATE_LOCAL_PATH"), "Markdown excludes authenticated and local link locations")
+        let markdownURL = try CanvasExport.markdown(board: draft)
+        defer { try? manager.removeItem(at: markdownURL.deletingLastPathComponent()) }
+        let exportedMarkdown = try String(contentsOf: markdownURL, encoding: .utf8)
+        try expect(exportedMarkdown == markdown && markdownURL.pathExtension == "md", "Markdown export writes the real UTF8 reading draft")
         return checks
     }
 }

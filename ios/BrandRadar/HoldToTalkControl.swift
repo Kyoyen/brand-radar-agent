@@ -39,6 +39,7 @@ final class HoldToTalkView: UIView {
         control.onTap = onTap; control.onBegin = onBegin; control.onCancelChange = onCancelChange; control.onEnd = onEnd
         control.accessibilityLabel = "说出你的想法"
         control.accessibilityValue = active ? title : ""
+        control.accessibilityHint = "轻点打字，按住说话，上滑取消"
         control.icon.image = UIImage(systemName: active ? "waveform" : "mic.fill")
         control.icon.backgroundColor = active ? UIColor.systemRed : UIColor(red: 0.14, green: 0.19, blue: 0.14, alpha: 1)
     }
@@ -58,8 +59,9 @@ private final class HoldToTalkButton: UIControl, UIGestureRecognizerDelegate {
     override init(frame: CGRect) {
         super.init(frame: frame)
         isAccessibilityElement = true; accessibilityTraits = .button; accessibilityIdentifier = "chatButton"
-        title.font = .systemFont(ofSize: 16, weight: .medium)
-        title.textColor = UIColor(red: 0.14, green: 0.19, blue: 0.14, alpha: 1)
+        title.font = UIFont.preferredFont(forTextStyle: .body)
+        title.adjustsFontForContentSizeCategory = true
+        title.textColor = CanvasStyle.ink
         title.adjustsFontSizeToFitWidth = true; title.minimumScaleFactor = 0.8
         icon.tintColor = .white; icon.contentMode = .center; icon.layer.cornerRadius = 21
         icon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 19, weight: .medium)

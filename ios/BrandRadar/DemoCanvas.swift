@@ -24,6 +24,13 @@ enum DemoCanvas {
     }
 
     static func apply(prompt: String, selectedID: String?, to board: inout RadarBoard) -> String {
+        if let selectedID, let group = board.groups?.first(where: { $0.id == selectedID }) {
+            let members = DirectAgent.selectedMembers(group.id, board: board)
+            let ids = board.visibleCards.filter { members.contains($0.id) }.map(\.id)
+            guard !ids.isEmpty else { return "这个分组还没有卡片。" }
+            for id in ids { _ = apply(prompt: prompt, selectedID: id, to: &board) }
+            return "已更新这个分组里的 \(ids.count) 张卡片。"
+        }
         let isCopy = prompt.contains("内容稿") || prompt.contains("文案") || prompt.contains("分享")
         let isRefine = selectedID != nil || prompt.contains("轻快") || prompt.contains("改稿")
         if isRefine, let id = selectedID ?? board.visibleCards.first(where: { $0.kind == "idea" })?.id,
