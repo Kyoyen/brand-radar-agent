@@ -3,6 +3,118 @@ import UniformTypeIdentifiers
 
 /// A portable document contains canvas content and its local assets only; connection settings live elsewhere.
 enum CanvasExport {
+    /// A reading draft follows root-group order, then each group's cards and child groups.
+    /// Coordinates and collapsed state affect the canvas, not the reading order.
+    static func markdownText(board: RadarBoard) -> String {
+        var lines = ["# " + markdownInline(board.title), ""]
+        if !board.question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { lines += [board.question, ""] }
+        let cards = board.visibleCards
+        let groups = board.groups ?? []
+        var seenCards = Set<String>(), seenGroups = Set<String>(), seenSources = Set<String>()
+        var sourceIDs: [String] = []
+        func heading(_ title: String, level: Int) -> String {
+            String(repeating: "#", count: min(6, level)) + " " + markdownInline(title)
+        }
+        func appendCard(_ id: String, level: Int) {
+            guard !seenCards.contains(id), let card = cards.first(where: { $0.id == id }) else { return }
+            seenCards.insert(id)
+            lines += [heading(card.title, level: level), ""]
+            if card.status == "kept" { lines += ["已采用", ""] }
+            for block in card.effectiveBlocks {
+                switch block.kind {
+                case "checklist":
+                    lines += block.items.map { "- [\($0.isChecked ? "x" : " ")] " + $0.text.replacingOccurrences(of: "\n", with: " ") }
+                case "table":
+                    if let first = block.rows.first {
+                        let columns = max(1, block.rows.map(\.count).max() ?? first.count)
+                        func row(_ cells: [String]) -> String {
+                            "| " + (0..<columns).map { i in
+                                (i < cells.count ? cells[i] : "").replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "|", with: "\\|").replacingOccurrences(of: "\n", with: "<br>")
+                            }.joined(separator: " | ") + " |"
+                        }
+                        lines += [row(first), "| " + Array(repeating: "---", count: columns).joined(separator: " | ") + " |"]
+                        lines += block.rows.dropFirst().map(row)
+                    }
+                case "link":
+                    if let link = markdownLink(block.url, title: block.text.isEmpty ? block.url : block.text) {
+                        lines += [link, "链接"]
+                    } else { lines += [markdownInline(block.text.isEmpty ? "链接暂不可用" : block.text), "链接地址不可用于公开网页阅读。"] }
+                default:
+                    if !block.text.isEmpty { lines.append(block.text) }
+                }
+                if let attachment = block.attachment {
+                    // Local filesystem locations do not travel with a readable Markdown draft.
+                    lines.append("附件：\(markdownInline(attachment.name))（原件见画布包）")
+                }
+                lines.append("")
+            }
+            let references = card.sourceIDs.filter { id in board.sources?.contains(where: { $0.id == id }) == true }
+            if !references.isEmpty {
+                lines += ["来源：" + references.compactMap { id in board.sources?.first(where: { $0.id == id }) }.map { markdownInline($0.title) }.joined(separator: "、"), ""]
+            }
+            for id in references where seenSources.insert(id).inserted { sourceIDs.append(id) }
+        }
+        func appendGroup(_ id: String, level: Int) {
+            guard !seenGroups.contains(id), let group = groups.first(where: { $0.id == id }) else { return }
+            seenGroups.insert(id)
+            lines += [heading(group.title, level: level), ""]
+            for cardID in group.cardIDs { appendCard(cardID, level: level + 1) }
+            for childID in group.groupIDs ?? [] { appendGroup(childID, level: level + 1) }
+        }
+        let children = Set(groups.flatMap { $0.groupIDs ?? [] })
+        for group in groups where !children.contains(group.id) { appendGroup(group.id, level: 2) }
+        // Defensive traversal covers old malformed cycles without duplicating objects or recursing forever.
+        for group in groups where !seenGroups.contains(group.id) { appendGroup(group.id, level: 2) }
+        let ungrouped = cards.filter { !seenCards.contains($0.id) }
+        if !groups.isEmpty && !ungrouped.isEmpty { lines += ["## 未分组内容", ""] }
+        for card in ungrouped { appendCard(card.id, level: groups.isEmpty ? 2 : 3) }
+        let activeIDs = seenCards.union(seenGroups)
+        var seenEdges = Set<String>()
+        let edges = board.edges.filter { activeIDs.contains($0.fromID) && activeIDs.contains($0.toID) && seenEdges.insert($0.id).inserted }
+        if !edges.isEmpty {
+            lines += ["## 关系", ""]
+            func title(_ id: String) -> String { markdownInline(cards.first(where: { $0.id == id })?.title ?? groups.first(where: { $0.id == id })?.title ?? "") }
+            for edge in edges {
+                lines.append("- \(title(edge.fromID)) \(edge.directed == false ? "—" : "→") \(title(edge.toID))" + (edge.label.isEmpty ? "" : "：" + markdownInline(edge.label)))
+            }
+            lines.append("")
+        }
+        if !sourceIDs.isEmpty {
+            lines += ["## 来源与材料", ""]
+            for id in sourceIDs {
+                guard let source = board.sources?.first(where: { $0.id == id }) else { continue }
+                lines += ["### " + markdownInline(source.title), ""]
+                if let raw = source.url, let link = markdownLink(raw, title: "打开来源") { lines.append(link) }
+                if source.excerpt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    lines.append(source.url == nil ? "来源记录" : "已保存链接，暂无摘录")
+                } else {
+                    lines += ["摘录：", source.excerpt]
+                }
+                lines.append("")
+            }
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    static func markdown(board: RadarBoard) throws -> URL {
+        let url = temporary("工作稿.md")
+        try Data(markdownText(board: board).utf8).write(to: url, options: .atomic)
+        return url
+    }
+
+    private static func markdownInline(_ text: String) -> String {
+        var value = text.replacingOccurrences(of: "\n", with: " ").replacingOccurrences(of: "\r", with: " ").replacingOccurrences(of: "\\", with: "\\\\")
+        for token in ["[", "]", "*", "_", "`", "#", "<", ">"] { value = value.replacingOccurrences(of: token, with: "\\" + token) }
+        return value
+    }
+
+    private static func markdownLink(_ raw: String, title: String) -> String? {
+        guard let parts = URLComponents(string: raw), ["http", "https"].contains(parts.scheme?.lowercased() ?? ""),
+              parts.host?.isEmpty == false, parts.user == nil, parts.password == nil, let url = parts.url else { return nil }
+        let address = url.absoluteString.replacingOccurrences(of: "<", with: "%3C").replacingOccurrences(of: ">", with: "%3E")
+        return "[\(markdownInline(title))](<\(address)>)"
+    }
+
     struct Package: Codable {
         var format = "brandradar.canvas"
         var version = 1

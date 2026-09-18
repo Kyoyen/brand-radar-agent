@@ -3,6 +3,8 @@ import SwiftUI
 struct InfiniteCanvas: UIViewRepresentable {
     @ObservedObject var store: BoardStore
     var bottomInset: CGFloat = 250
+    var onRead: ((String) -> Void)? = nil
+    var onContinue: ((String) -> Void)? = nil
     var onOpen: (String) -> Void
     func makeUIView(context: Context) -> RadarCanvasView {
         let view = RadarCanvasView()
@@ -10,12 +12,15 @@ struct InfiniteCanvas: UIViewRepresentable {
         view.onSelection = { store.tapCard($0) }
         view.onDragSelection = { store.selectedCardID = $0 }
         view.onOpen = onOpen
+        view.onRead = onRead
+        view.onContinue = onContinue
         view.onMove = { store.moveCard($0, x: $1, y: $2) }
         view.onMoveGroup = { store.moveGroup($0, dx: $1, dy: $2) }
         view.onViewport = { x, y, zoom in store.setViewport(x: x, y: y, zoom: zoom) }
         return view
     }
     func updateUIView(_ view: RadarCanvasView, context: Context) {
+        view.onOpen = onOpen; view.onRead = onRead; view.onContinue = onContinue
         view.bottomInset = bottomInset
         view.configure(board: store.current, selection: store.selectedCardID, fitRequest: store.fitRequest)
     }
@@ -26,6 +31,8 @@ final class RadarCanvasView: UIView, UIGestureRecognizerDelegate {
     var onCommand: ((CanvasCommand) -> Void)?
     var onSelection: ((String?) -> Void)?
     var onDragSelection: ((String) -> Void)?
+    var onRead: ((String) -> Void)?
+    var onContinue: ((String) -> Void)?
     var onOpen: ((String) -> Void)?
     var onMove: ((String, Double, Double) -> Void)?
     var onMoveGroup: ((String, Double, Double) -> Void)?
@@ -79,26 +86,28 @@ final class RadarCanvasView: UIView, UIGestureRecognizerDelegate {
     private var lastObjectIDs = Set<String>()
     private var appearanceTimes: [String: TimeInterval] = [:]
     private var animationTimer: Timer?
+    private var visibleEdgeCount = 0
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        backgroundColor = UIColor(red: 0.956, green: 0.955, blue: 0.925, alpha: 1)
+        backgroundColor = CanvasStyle.background
         accessibilityIdentifier = "canvas"
         isMultipleTouchEnabled = true
         let pan = CanvasPanGestureRecognizer(target: self, action: #selector(pan(_:)))
         pan.maximumNumberOfTouches = 1; pan.delegate = self
         toolbar.axis = .horizontal; toolbar.spacing = 8; toolbar.alignment = .center
-        toolbar.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.96)
+        toolbar.backgroundColor = CanvasStyle.paper.withAlphaComponent(0.98)
         toolbar.layer.cornerRadius = 16; toolbar.isLayoutMarginsRelativeArrangement = true
         toolbar.layoutMargins = UIEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
         addSubview(toolbar)
         multiButton.setImage(UIImage(systemName: "checkmark.circle"), for: .normal)
-        multiButton.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.95)
+        multiButton.backgroundColor = CanvasStyle.paper
         multiButton.layer.cornerRadius = 22; multiButton.accessibilityLabel = "多选"
         multiButton.accessibilityIdentifier = "canvasMultiSelect"
         multiButton.addTarget(self, action: #selector(toggleMulti), for: .touchUpInside); addSubview(multiButton)
-        locateButton.setTitle("查看新增", for: .normal); locateButton.titleLabel?.font = .systemFont(ofSize: 13, weight: .medium)
-        locateButton.backgroundColor = .systemBackground; locateButton.layer.cornerRadius = 18
+        locateButton.setTitle("查看新增", for: .normal); locateButton.titleLabel?.font = .preferredFont(forTextStyle: .subheadline)
+        locateButton.titleLabel?.adjustsFontForContentSizeCategory = true; locateButton.tintColor = CanvasStyle.accent
+        locateButton.backgroundColor = CanvasStyle.paper; locateButton.layer.cornerRadius = 18
         locateButton.addTarget(self, action: #selector(locateNew), for: .touchUpInside); locateButton.isHidden = true; addSubview(locateButton)
         addGestureRecognizer(pan)
         let pinch = UIPinchGestureRecognizer(target: self, action: #selector(pinch(_:)))
@@ -153,10 +162,10 @@ final class RadarCanvasView: UIView, UIGestureRecognizerDelegate {
     override func layoutSubviews() {
         super.layoutSubviews()
         if needsFit && bounds.width > 0 && !interacting { needsFit = false; fit() }
-        toolbar.frame = CGRect(x: 16, y: max(140, safeAreaInsets.top + 88), width: min(bounds.width - 32, toolbar.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize).width), height: 46)
+        toolbar.frame = CGRect(x: 16, y: max(140, safeAreaInsets.top + 88), width: min(bounds.width - 32, toolbar.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize).width), height: 60)
         let controlsY = max(toolbar.frame.maxY + 12, bounds.height - bottomInset - 50)
         multiButton.frame = CGRect(x: bounds.width - 60, y: controlsY, width: 44, height: 44)
-        locateButton.frame = CGRect(x: 16, y: controlsY, width: 100, height: 36)
+        locateButton.frame = CGRect(x: 16, y: controlsY, width: 110, height: 44)
         refreshAccessibility()
     }
     private func world(_ point: CGPoint) -> CGPoint {
@@ -363,13 +372,14 @@ final class RadarCanvasView: UIView, UIGestureRecognizerDelegate {
         #if DEBUG
         lastDrawCounts = ["nodes": cards.count, "groups": groups.count, "edges": edges.count]
         #endif
+        visibleEdgeCount = edges.count
         for group in groups { drawGroup(group) }
         for edge in edges { drawEdge(edge, context: context) }
         for card in cards { drawCard(card, context: context) }
         for id in selectedIDs { drawHandles(id) }
-        if let target = connectionTarget, let rect = objectRect(target) { UIColor.systemGreen.setStroke(); let p = UIBezierPath(roundedRect: rect.insetBy(dx: -5, dy: -5), cornerRadius: 22); p.lineWidth = 3; p.stroke() }
-        if let source = connectionSource, let start = port(source), let end = connectionPoint { let p = UIBezierPath(); p.move(to: start); p.addLine(to: end); p.lineWidth = 2; UIColor.systemGreen.setStroke(); p.stroke() }
-        if let box = selectionBox { UIColor.systemGreen.withAlphaComponent(0.1).setFill(); UIColor.systemGreen.setStroke(); let p = UIBezierPath(rect: box); p.lineWidth = 1 / scale; p.fill(); p.stroke() }
+        if let target = connectionTarget, let rect = objectRect(target) { CanvasStyle.accent.setStroke(); let p = UIBezierPath(roundedRect: rect.insetBy(dx: -5, dy: -5), cornerRadius: 22); p.lineWidth = 3; p.stroke() }
+        if let source = connectionSource, let start = port(source), let end = connectionPoint { let p = UIBezierPath(); p.move(to: start); p.addLine(to: end); p.lineWidth = 2; CanvasStyle.accent.setStroke(); p.stroke() }
+        if let box = selectionBox { CanvasStyle.accent.withAlphaComponent(0.1).setFill(); CanvasStyle.accent.setStroke(); let p = UIBezierPath(rect: box); p.lineWidth = 1 / scale; p.fill(); p.stroke() }
         context.restoreGState()
     }
     private func drawGroup(_ group: RadarGroup) {
@@ -378,9 +388,9 @@ final class RadarCanvasView: UIView, UIGestureRecognizerDelegate {
         let color = RadarCard(title: "", body: "", color: group.color).uiColor
         let path = UIBezierPath(roundedRect: rect, cornerRadius: 28)
         color.withAlphaComponent(0.32).setFill(); path.fill()
-        UIColor(red: 0.35, green: 0.43, blue: 0.35, alpha: 0.28).setStroke()
+        CanvasStyle.accent.withAlphaComponent(0.38).setStroke()
         path.lineWidth = selectedIDs.contains(group.id) ? 3 : 1.5; path.stroke()
-        guard rect.width * scale >= 50 else { return }
+        guard 18 * scale >= 10 && rect.width * scale >= 85 else { return }
         text(group.title, CGRect(x: rect.minX + 23, y: rect.minY + 17, width: rect.width - 70, height: 25), .systemFont(ofSize: 18, weight: .semibold), .darkGray)
         text(group.collapsed == true ? "+" : "−", CGRect(x: rect.maxX - 35, y: rect.minY + 15, width: 22, height: 26), .systemFont(ofSize: 22), .gray)
     }
@@ -389,7 +399,7 @@ final class RadarCanvasView: UIView, UIGestureRecognizerDelegate {
         let highlighted = selectedIDs.contains(edge.id) || selectedIDs.contains(edge.fromID) || selectedIDs.contains(edge.toID)
         context.saveGState(); context.setAlpha(appearance(edge.id))
         defer { context.restoreGState() }
-        UIColor(red: 0.25, green: 0.40, blue: 0.28, alpha: highlighted ? 1 : 0.7).setStroke()
+        CanvasStyle.accent.withAlphaComponent(highlighted ? 1 : 0.7).setStroke()
         let progress = appearance(edge.id)
         if progress < 1 {
             let c1 = CGPoint(x: start.x + end.x - c2.x, y: start.y + end.y - c2.y)
@@ -404,7 +414,7 @@ final class RadarCanvasView: UIView, UIGestureRecognizerDelegate {
             let angle = atan2(end.y - c2.y, end.x - c2.x)
             let arrow = UIBezierPath(); arrow.move(to: CGPoint(x: end.x - 10 * cos(angle - 0.45), y: end.y - 10 * sin(angle - 0.45))); arrow.addLine(to: end); arrow.addLine(to: CGPoint(x: end.x - 10 * cos(angle + 0.45), y: end.y - 10 * sin(angle + 0.45))); arrow.lineWidth = 2; arrow.stroke()
         }
-        if !edge.label.isEmpty && scale >= 0.25 {
+        if !edge.label.isEmpty && CanvasStyle.showsEdgeLabel(scale: scale, selected: highlighted, visibleEdges: visibleEdgeCount) {
             let middle = CGPoint(x: (start.x + end.x) / 2, y: (start.y + end.y) / 2)
             let font = UIFont.systemFont(ofSize: 11, weight: .medium)
             let size = (edge.label as NSString).size(withAttributes: [.font: font])
@@ -419,13 +429,15 @@ final class RadarCanvasView: UIView, UIGestureRecognizerDelegate {
         let path = UIBezierPath(roundedRect: rect, cornerRadius: 19)
         context.saveGState()
         if rect.width * scale >= 70 { context.setShadow(offset: CGSize(width: 0, height: 5), blur: 16, color: UIColor.black.withAlphaComponent(0.06).cgColor) }
-        card.uiColor.setFill(); path.fill(); context.restoreGState()
-        (selectedIDs.contains(card.id) ? UIColor(red: 0.2, green: 0.36, blue: 0.21, alpha: 1) : UIColor.black.withAlphaComponent(0.07)).setStroke()
-        path.lineWidth = selectedIDs.contains(card.id) ? 3 : 1; path.stroke()
-        guard rect.width * scale >= 35 else { return }
-        let secondary = UIColor(red: 0.3, green: 0.34, blue: 0.28, alpha: 1)
-        text(card.title, CGRect(x: rect.minX + 22, y: rect.minY + 26, width: rect.width - 44, height: 60), .systemFont(ofSize: 23, weight: .semibold), .black)
-        guard rect.width * scale >= 70 else { return }
+        let surface = card.color == "cream" ? CanvasStyle.paper : card.uiColor
+        surface.setFill(); path.fill(); context.restoreGState()
+        (selectedIDs.contains(card.id) ? CanvasStyle.accent : CanvasStyle.border).setStroke()
+        path.lineWidth = selectedIDs.contains(card.id) ? max(2 / scale, 2) : 1; path.stroke()
+        let detail = CanvasStyle.detail(rect: rect, scale: scale)
+        guard detail != .shape else { return }
+        let secondary = CanvasStyle.secondary
+        text(card.title, CGRect(x: rect.minX + 22, y: rect.minY + 26, width: rect.width - 44, height: 60), .systemFont(ofSize: 23, weight: .semibold), CanvasStyle.ink)
+        guard detail == .preview else { return }
         if let preview = geometry.richPreview(for: card.id), preview.hasStructuredContent {
             CanvasRichPreview.draw(preview, in: CGRect(x: rect.minX + 22, y: rect.minY + 96, width: rect.width - 44, height: max(28, rect.height - 139)), ink: secondary)
         } else {
@@ -435,7 +447,7 @@ final class RadarCanvasView: UIView, UIGestureRecognizerDelegate {
             context.saveGState(); UIBezierPath(roundedRect: thumbnail, cornerRadius: 8).addClip()
             let ratio = min(thumbnail.width / image.size.width, thumbnail.height / image.size.height)
             let size = CGSize(width: image.size.width * ratio, height: image.size.height * ratio)
-            card.uiColor.setFill(); context.fill(thumbnail)
+            surface.setFill(); context.fill(thumbnail)
             image.draw(in: CGRect(x: thumbnail.midX - size.width / 2, y: thumbnail.midY - size.height / 2, width: size.width, height: size.height)); context.restoreGState()
         }
         }
@@ -460,7 +472,7 @@ final class RadarCanvasView: UIView, UIGestureRecognizerDelegate {
     private func drawHandles(_ id: String) {
         guard let r = objectRect(id) else { return }
         let radius = max(7, 10 / scale)
-        UIColor.white.setFill(); UIColor.systemGreen.setStroke()
+        UIColor.white.setFill(); CanvasStyle.accent.setStroke()
         let port = UIBezierPath(ovalIn: CGRect(x: r.maxX-radius, y: r.midY-radius, width: radius*2, height: radius*2)); port.lineWidth = 2 / scale; port.fill(); port.stroke()
         let handle = UIBezierPath(roundedRect: CGRect(x: r.maxX-radius, y: r.maxY-radius, width: radius*2, height: radius*2), cornerRadius: 3 / scale); handle.lineWidth = 2 / scale; handle.fill(); handle.stroke()
     }
@@ -475,14 +487,19 @@ final class RadarCanvasView: UIView, UIGestureRecognizerDelegate {
     }
     private func updateToolbar() {
         toolbar.arrangedSubviews.forEach { toolbar.removeArrangedSubview($0); $0.removeFromSuperview() }
-        multiButton.tintColor = multiSelect ? .systemGreen : .darkGray
+        multiButton.tintColor = multiSelect ? CanvasStyle.accent : CanvasStyle.ink
         toolbar.isHidden = selectedIDs.isEmpty && !multiSelect && connectionSource == nil
         func button(_ title: String, symbol: String, _ action: @escaping () -> Void) {
             let b = UIButton(type: .system)
-            b.setImage(UIImage(systemName: symbol), for: .normal); b.tintColor = .darkGray
+            b.setImage(UIImage(systemName: symbol), for: .normal); b.tintColor = CanvasStyle.ink
             b.accessibilityLabel = title; b.accessibilityIdentifier = title == "编辑" ? "editCardButton" : "canvas_" + title
-            b.widthAnchor.constraint(equalToConstant: 36).isActive = true
-            b.heightAnchor.constraint(equalToConstant: 32).isActive = true
+            if ["阅读", "继续改", "编辑"].contains(title) {
+                b.setTitle(title, for: .normal); b.titleLabel?.font = .preferredFont(forTextStyle: .subheadline)
+                b.titleLabel?.adjustsFontForContentSizeCategory = true
+                b.setImage(nil, for: .normal)
+                b.widthAnchor.constraint(greaterThanOrEqualToConstant: 58).isActive = true
+            } else { b.widthAnchor.constraint(equalToConstant: 44).isActive = true }
+            b.heightAnchor.constraint(equalToConstant: 44).isActive = true
             b.addAction(UIAction { _ in action() }, for: .touchUpInside); toolbar.addArrangedSubview(b)
         }
         if connectionSource != nil {
@@ -494,15 +511,28 @@ final class RadarCanvasView: UIView, UIGestureRecognizerDelegate {
                 button("反转连线", symbol: "arrow.left.arrow.right") { [weak self] in self?.onCommand?(.edge(id: id, label: edge.label, directed: edge.directed != false, reversed: true)) }
             } else {
                 if board?.cards.contains(where: { $0.id == id }) == true {
+                    button("阅读", symbol: "doc.text") { [weak self] in (self?.onRead ?? self?.onOpen)?(id) }
+                    button("继续改", symbol: "bubble.left") { [weak self] in self?.onContinue?(id) }
                     button("编辑", symbol: "pencil") { [weak self] in self?.onOpen?(id) }
+                    let more = UIButton(type: .system)
+                    more.setImage(UIImage(systemName: "ellipsis"), for: .normal); more.tintColor = CanvasStyle.ink
+                    more.accessibilityLabel = "卡片操作"; more.accessibilityIdentifier = "canvas_cardMore"
+                    more.widthAnchor.constraint(equalToConstant: 44).isActive = true; more.heightAnchor.constraint(equalToConstant: 44).isActive = true
+                    more.menu = UIMenu(children: [
+                        UIAction(title: "连接", image: UIImage(systemName: "arrow.up.right")) { [weak self] _ in self?.connectionSource = id; self?.updateToolbar() },
+                        UIAction(title: "复制", image: UIImage(systemName: "plus.square.on.square")) { [weak self] _ in self?.onCommand?(.duplicate(ids: [id])) },
+                        UIAction(title: "删除", image: UIImage(systemName: "trash"), attributes: .destructive) { [weak self] _ in self?.deleteSelection() }
+                    ]); more.showsMenuAsPrimaryAction = true; toolbar.addArrangedSubview(more)
                 } else {
                     button("重命名", symbol: "pencil") { [weak self] in self?.rename(id) }
                     button("解散分组", symbol: "rectangle.3.group") { [weak self] in self?.onCommand?(.ungroup(id: id)); self?.selectedIDs = []; self?.updateToolbar() }
                 }
+                if board?.cards.contains(where: { $0.id == id }) != true {
                 button("连接", symbol: "arrow.up.right") { [weak self] in self?.connectionSource = id; self?.updateToolbar() }
                 button("复制", symbol: "plus.square.on.square") { [weak self] in self?.onCommand?(.duplicate(ids: [id])) }
+                }
             }
-            button("删除", symbol: "trash") { [weak self] in self?.deleteSelection() }
+            if board?.cards.contains(where: { $0.id == id }) != true { button("删除", symbol: "trash") { [weak self] in self?.deleteSelection() } }
         } else if !selectedIDs.isEmpty {
             button("分组", symbol: "rectangle.3.group") { [weak self] in guard let self else { return }; self.onCommand?(.group(ids: self.selectedIDs)); self.selectedIDs = []; self.updateToolbar() }
             button("复制", symbol: "plus.square.on.square") { [weak self] in guard let self else { return }; self.onCommand?(.duplicate(ids: self.selectedIDs)) }
@@ -572,10 +602,10 @@ final class RadarCanvasView: UIView, UIGestureRecognizerDelegate {
             element.accessibilityIdentifier = "card_\(card.id)"
             element.accessibilityLabel = card.title
             element.accessibilityValue = card.body
-            element.accessibilityHint = "打开卡片编辑"
+            element.accessibilityHint = "阅读全文"
             element.accessibilityTraits = .button
             element.accessibilityFrameInContainerSpace = screen
-            element.activate = { [weak self] in self?.onSelection?(card.id); self?.onOpen?(card.id) }
+            element.activate = { [weak self] in self?.onSelection?(card.id); (self?.onRead ?? self?.onOpen)?(card.id) }
             return element
         }
         for group in board?.groups ?? [] where !hiddenIDs.contains(group.id) {
@@ -586,7 +616,7 @@ final class RadarCanvasView: UIView, UIGestureRecognizerDelegate {
             element.accessibilityIdentifier = "group_\(group.id)"
             element.accessibilityLabel = group.title
             element.accessibilityValue = "\(group.cardIDs.count) 张卡片"
-            element.accessibilityHint = "展开分组"
+            element.accessibilityHint = "聚焦分组"
             element.accessibilityTraits = .button
             element.accessibilityFrameInContainerSpace = screen
             element.activate = { [weak self] in self?.fit(rect) }

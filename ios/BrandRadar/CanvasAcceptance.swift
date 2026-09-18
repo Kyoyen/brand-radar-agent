@@ -9,6 +9,14 @@ import Foundation
         }
         do {
             passed += try CanvasContentChecks.run()
+            passed += try CanvasReadingChecks.run()
+            passed += try CanvasWorkflowChecks.run()
+            passed += try EditorCommitChecks.run(store: store)
+            passed += try ArchiveStoreChecks.run(store: store)
+            let archiveChecks = try ArchiveChecks.run()
+            let archivePackageChecks = try ArchiveChecks.runPackageChecks()
+            passed.append("archive relations and conditional undo: \(archiveChecks) checks passed")
+            passed.append("archived canvas package and attachment roundtrip: \(archivePackageChecks) checks passed")
             passed += try CanvasGeometryChecks.run()
             var board = BoardTemplate.blank.make()
             let a = RadarCard(id: "a", title: "初始", body: "原文"), b = RadarCard(id: "b", title: "后续", body: "")

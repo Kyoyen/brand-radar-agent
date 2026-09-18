@@ -58,12 +58,33 @@ final class CanvasEditingUITests: XCTestCase {
         let app = launch()
         let edgeCount = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'edge_'")).count
         app.buttons["card_demo_action"].tap()
-        app.buttons["canvas_连接"].tap(); app.buttons["card_demo_brief"].tap()
+        app.buttons["canvas_cardMore"].tap(); app.buttons["连接"].tap(); app.buttons["card_demo_brief"].tap()
         wait { app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'edge_'")).count == edgeCount + 1 }
         // The new back edge exercises allowed graph cycles without containment changes.
         let edge = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'edge_' AND label == '关联'")).firstMatch
         XCTAssertTrue(edge.exists)
         let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "Editable graph with back edge"; shot.lifetime = .keepAlways; add(shot)
+    }
+
+    func testVisibleReaderReturnsToUnchangedCanvasAndCanEdit() {
+        let app = launch(), card = app.buttons["card_demo_idea"]
+        let before = card.frame
+        card.tap()
+        XCTAssertTrue(app.buttons["canvas_阅读"].waitForExistence(timeout: 3))
+        XCTAssertGreaterThanOrEqual(app.buttons["canvas_阅读"].frame.height, 44)
+        app.buttons["canvas_阅读"].tap()
+        XCTAssertTrue(app.scrollViews["cardReaderContent"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["readerContinue"].exists)
+        XCTAssertTrue(app.buttons["readerEdit"].exists)
+        let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "B05 full card reader"; shot.lifetime = .keepAlways; add(shot)
+        app.buttons["closeCardReader"].tap()
+        XCTAssertTrue(card.waitForExistence(timeout: 3))
+        XCTAssertEqual(card.frame.minX, before.minX, accuracy: 1)
+        XCTAssertEqual(card.frame.minY, before.minY, accuracy: 1)
+        XCTAssertEqual(card.frame.width, before.width, accuracy: 1)
+        app.buttons["canvas_阅读"].tap()
+        app.buttons["readerEdit"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["cardTitleInput"].firstMatch.waitForExistence(timeout: 3))
     }
     func testConnectionDroppedOnEmptyOffersNewNode() {
         let app = launch(), card = app.buttons["card_demo_action"]

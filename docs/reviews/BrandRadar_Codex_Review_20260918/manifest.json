@@ -1,0 +1,34 @@
+{
+  "review_date": "2026-09-18",
+  "repository": "Kyoyen/brand-radar-agent",
+  "review_commit": "6a3737d21a2a9e6776d3ad51088d29710e902267",
+  "audit_method": "source-and-document-review",
+  "runtime_screenshots_obtained": false,
+  "builds_and_tests_executed": false,
+  "files": [
+    {
+      "name": "00_START_HERE.md",
+      "sha256": "35d170f8d45d01cbd5b6a9178239c722a67df87365ad62de8a7e0d495cc89938"
+    },
+    {
+      "name": "01_PRODUCT_REVIEW.md",
+      "sha256": "773baf54d0b5a098cf6d057c903d56a612f8c4ded824e39518cdac1ec6286e34"
+    },
+    {
+      "name": "02_UX_UI_SPEC.md",
+      "sha256": "e1f8478e57433335f605cec26537c1a77cb9da17de416ff96688535a7ca1c8bb"
+    },
+    {
+      "name": "03_CODEX_BACKLOG.md",
+      "sha256": "5959fcdc1e8e1c6de83f196d5e1f5363e0f91cfa0646a7b35924ddde7ebf23ee"
+    },
+    {
+      "name": "04_ACCEPTANCE.md",
+      "sha256": "ce6bc25b16a1d421c3593fe5ef56025c8d972f455362df3de8354c1205ab1aea"
+    },
+    {
+      "name": "05_EVIDENCE.md",
+      "sha256": "d111675c98daba07b4f250722b10d28183eabdde4d833471fd7da11b2aa38999"
+    }
+  ]
+}

@@ -23,7 +23,7 @@ struct RichContentEditor: View {
                         Menu {
                             Button("上移", systemImage: "arrow.up") { move(block.id, by: -1) }
                             Button("下移", systemImage: "arrow.down") { move(block.id, by: 1) }
-                            Button("拆为节点", systemImage: "square.on.square") { split(block.id) }
+                            Button("保存并转为节点", systemImage: "square.on.square") { split(block.id) }.accessibilityIdentifier("splitBlock_\(block.id)")
                             Button("删除", systemImage: "trash", role: .destructive) { blocks.removeAll { $0.id == block.id } }
                         } label: { Image(systemName: "ellipsis").padding(8) }.accessibilityLabel("内容操作")
                     }

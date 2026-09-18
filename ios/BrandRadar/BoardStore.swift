@@ -6,6 +6,11 @@ import SwiftUI
     @Published var selectedCardID: String?
     @Published var busyBoardID: String?
     @Published var error: String?
+    @Published var restorationNotice: String?
+    @Published var editorFeedback: String?
+    @Published var splitUndoSessionID: String?
+    @Published var latestChange: CanvasChangeSummary?
+    private var requestTargetLabel: String?
     @Published var activity = ""
     @Published var connected = false
     @Published var modelName = ""
@@ -61,13 +66,36 @@ import SwiftUI
         return connected ? "MAC 已连接" : "等待连接 Mac"
     }
 
-    init() {
+    var chatTargetIsValid: Bool {
+        guard let id = selectedCardID else { return true }
+        return current.visibleCards.contains { $0.id == id } || (current.groups ?? []).contains { $0.id == id }
+    }
+    var chatTargetLabel: String {
+        if isRunning || voiceSession != nil, let label = requestTargetLabel { return label }
+        guard let id = selectedCardID else { return "整张画布" }
+        if let card = current.visibleCards.first(where: { $0.id == id }) { return "卡片 · \(card.title)" }
+        if let group = current.groups?.first(where: { $0.id == id }) {
+            let members = DirectAgent.selectedMembers(id, board: current)
+            return "分组 · \(group.title) · \(current.visibleCards.filter { members.contains($0.id) }.count) 张卡片"
+        }
+        return "原目标已移除，请重新选择"
+    }
+    func clearChatTarget() { guard !isRunning, voiceSession == nil else { return }; selectedCardID = nil }
+    func appendDictation(_ text: String, boardID: String) {
+        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, let index = boards.firstIndex(where: { $0.id == boardID }) else { return }
+        let draft = boards[index].composerDraft ?? ""
+        boards[index].composerDraft = draft.isEmpty ? text : draft + "\n" + text
+        schedulePersist()
+    }
+
+    init(testDirectory: URL? = nil, preferences testingPreferences: UserDefaults? = nil) {
         let arguments = ProcessInfo.processInfo.arguments
-        let resetTesting = arguments.contains("--uitesting")
-        isolatedTesting = resetTesting || arguments.contains("--uitesting-restore")
-        preferences = isolatedTesting ? UserDefaults(suiteName: "com.keyuanshi.brandradar.uitesting")! : .standard
+        let resetTesting = testDirectory == nil && arguments.contains("--uitesting")
+        isolatedTesting = testDirectory != nil || resetTesting || arguments.contains("--uitesting-restore")
+        preferences = testingPreferences ?? (isolatedTesting ? UserDefaults(suiteName: "com.keyuanshi.brandradar.uitesting")! : .standard)
         if resetTesting { preferences.removePersistentDomain(forName: "com.keyuanshi.brandradar.uitesting") }
-        let folder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let folder = testDirectory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         file = folder.appendingPathComponent(isolatedTesting ? "uitest-boards.json" : "radar-boards.json")
         var loadFailure = false
         if !resetTesting, FileManager.default.fileExists(atPath: file.path) {
@@ -108,7 +136,7 @@ import SwiftUI
         }
         // The test defaults use their own endpoint, so Keychain restart behavior can
         // be exercised without loading a user's connection or allowing generation.
-        apiKeyConfigured = !AgentAPIKeychain.read(for: apiConfiguration).isEmpty
+        apiKeyConfigured = testDirectory == nil && !AgentAPIKeychain.read(for: apiConfiguration).isEmpty
         if !boards.contains(where: { $0.mode == mode }) {
             var board = mode == .demo ? DemoCanvas.seed() : BoardTemplate.blank.make()
             board.workspaceMode = mode
@@ -278,36 +306,75 @@ import SwiftUI
         let card = RadarCard(title: "新便签", body: "", x: max(-100000, min(100000, (60 - board.offsetX) / board.zoom)), y: max(-100000, min(100000, (240 - board.offsetY) / board.zoom)))
         update { $0.cards.append(card) }; selectedCardID = card.id
     }
-    func editCard(_ card: RadarCard, baseline: RadarCard? = nil) {
-        update { board in
-            guard let i = board.cards.firstIndex(where: { $0.id == card.id }) else { return }
-            let current = board.cards[i]
-            var replacement = current
-            let base = baseline ?? current
-            if card.title != base.title { replacement.title = card.title }
-            if card.body != base.body { replacement.body = card.body }
-            if card.color != base.color { replacement.color = card.color }
-            if card.status != base.status { replacement.status = card.status }
-            if card.width != base.width { replacement.width = card.width }
-            if card.height != base.height { replacement.height = card.height }
-            if card.blocks != base.blocks {
-                let old = base.effectiveBlocks, edited = card.effectiveBlocks
-                let removed = Set(old.map(\.id)).subtracting(edited.map(\.id))
-                var blocks = current.effectiveBlocks.filter { !removed.contains($0.id) }
-                for block in edited where old.first(where: { $0.id == block.id }) != block {
-                    if let index = blocks.firstIndex(where: { $0.id == block.id }) { blocks[index] = block }
-                    else { blocks.append(block) }
-                }
-                let order = Dictionary(uniqueKeysWithValues: edited.enumerated().map { ($0.element.id, $0.offset) })
-                replacement.blocks = blocks.sorted { (order[$0.id] ?? Int.max) < (order[$1.id] ?? Int.max) }
-            }
-            if current.title != replacement.title || current.body != replacement.body { replacement.history.append(current.title + "\n\n" + current.body) }
-            board.cards[i] = replacement
-            if replacement.status == "archived" {
-                board.edges.removeAll { $0.fromID == card.id || $0.toID == card.id }
-                for index in (board.groups ?? []).indices { board.groups?[index].cardIDs.removeAll { $0 == card.id } }
-            }
+    /// Only fields touched in this editor are committed. A competing edit to the same field is explicit.
+    private func editorReplacement(_ draft: RadarCard, baseline: RadarCard, current: RadarCard) -> RadarCard? {
+        guard draft.id == baseline.id, draft.id == current.id else { editorFeedback = "原节点已变化，请保留草稿后重新打开。"; return nil }
+        var result = current
+        var conflict: String?
+        func merge<T: Equatable>(_ key: WritableKeyPath<RadarCard, T>, _ label: String) {
+            guard draft[keyPath: key] != baseline[keyPath: key] else { return }
+            if current[keyPath: key] != baseline[keyPath: key] && current[keyPath: key] != draft[keyPath: key] { conflict = conflict ?? label }
+            else { result[keyPath: key] = draft[keyPath: key] }
         }
+        merge(\.title, "标题"); merge(\.color, "颜色"); merge(\.status, "采用状态")
+        merge(\.width, "宽度"); merge(\.height, "高度")
+        let blocksChanged = draft.blocks != baseline.blocks
+        let draftSummary = draft.effectiveBlocks.map(\.summary).joined(separator: "\n\n")
+        let derivedBody = blocksChanged && draft.body == draftSummary
+        if !derivedBody { merge(\.body, "正文") }
+        else if current.body != baseline.body && current.body != draft.body && current.body != current.effectiveBlocks.map(\.summary).joined(separator: "\n\n") { conflict = conflict ?? "正文" }
+        if blocksChanged {
+            let old = baseline.effectiveBlocks, edited = draft.effectiveBlocks, latest = current.effectiveBlocks
+            guard Set(old.map(\.id)).count == old.count, Set(edited.map(\.id)).count == edited.count,
+                  Set(latest.map(\.id)).count == latest.count else { editorFeedback = "内容块标识重复，草稿尚未保存。"; return nil }
+            let oldByID = Dictionary(uniqueKeysWithValues: old.map { ($0.id, $0) })
+            let editedByID = Dictionary(uniqueKeysWithValues: edited.map { ($0.id, $0) })
+            let latestByID = Dictionary(uniqueKeysWithValues: latest.map { ($0.id, $0) })
+            let touched = Set(oldByID.keys).union(editedByID.keys).filter { oldByID[$0] != editedByID[$0] }
+            for id in touched where latestByID[id] != oldByID[id] && latestByID[id] != editedByID[id] { conflict = conflict ?? "同一内容块" }
+            let common = Set(oldByID.keys).intersection(editedByID.keys).intersection(latestByID.keys)
+            let oldOrder = old.map(\.id).filter { common.contains($0) }
+            let draftOrder = edited.map(\.id).filter { common.contains($0) }
+            let liveOrder = latest.map(\.id).filter { common.contains($0) }
+            if draftOrder != oldOrder && liveOrder != oldOrder && liveOrder != draftOrder { conflict = conflict ?? "内容块顺序" }
+            var blocks = latest.filter { !touched.contains($0.id) || editedByID[$0.id] != nil }
+            for (slot, block) in edited.enumerated() where touched.contains(block.id) {
+                if let index = blocks.firstIndex(where: { $0.id == block.id }) { blocks[index] = block }
+                else if let previous = edited.prefix(slot).reversed().first(where: { item in blocks.contains { $0.id == item.id } }), let anchor = blocks.firstIndex(where: { $0.id == previous.id }) { blocks.insert(block, at: anchor + 1) }
+                else if let next = edited.dropFirst(slot + 1).first(where: { item in blocks.contains { $0.id == item.id } }), let anchor = blocks.firstIndex(where: { $0.id == next.id }) { blocks.insert(block, at: anchor) }
+                else { blocks.append(block) }
+            }
+            if draftOrder != oldOrder {
+                let ordered = edited.compactMap { item in blocks.first { $0.id == item.id } }
+                blocks = ordered + blocks.filter { editedByID[$0.id] == nil }
+            }
+            result.blocks = blocks
+            if derivedBody { result.body = blocks.map(\.summary).joined(separator: "\n\n") }
+        }
+        guard conflict == nil else { editorFeedback = "\(conflict!)已在其他操作中更新，草稿尚未保存。请保留这份草稿并核对最新内容。"; return nil }
+        if current.title != result.title || current.body != result.body { result.history.append(current.title + "\n\n" + current.body) }
+        return result
+    }
+    @discardableResult func editCard(_ card: RadarCard, baseline: RadarCard? = nil) -> Bool {
+        editorFeedback = nil
+        guard let live = current.cards.first(where: { $0.id == card.id }) else { editorFeedback = "原节点已被删除，草稿尚未保存。"; return false }
+        guard let replacement = editorReplacement(card, baseline: baseline ?? live, current: live) else { return false }
+        var candidate = current
+        guard let i = candidate.cards.firstIndex(where: { $0.id == card.id }) else { return false }
+        candidate.cards[i] = replacement
+        var archiveResult = CanvasArchiveResult()
+        if live.status != "archived" && replacement.status == "archived" {
+            candidate.cards[i].status = live.status
+            archiveResult = CanvasArchiving.archive(&candidate, cardID: card.id)
+        } else if live.status == "archived" && replacement.status != "archived" {
+            candidate.cards[i].status = live.status
+            archiveResult = CanvasArchiving.restore(&candidate, cardID: card.id)
+        }
+        do { try CanvasDocument(candidate).validate() }
+        catch { editorFeedback = "这次修改无法保存，草稿已保留。"; return false }
+        update { board in board.cards = candidate.cards; board.edges = candidate.edges; board.groups = candidate.groups }
+        restorationNotice = archiveResult.message
+        return true
     }
     func moveCard(_ id: String, x: Double, y: Double) {
         update { board in
@@ -430,9 +497,16 @@ import SwiftUI
     func send(_ content: String) {
         let content = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !content.isEmpty, voiceSession == nil, busyBoardID == nil else { return }
+        guard chatTargetIsValid else { error = "原目标已移除，请重新选择或改为整张画布。"; return }
+        requestTargetLabel = chatTargetLabel; latestChange = nil
         error = nil
         let boardID = selectedID
         let selection = selectedCardID.map { [$0] } ?? []
+        let selectedMembers = selection.first.map { DirectAgent.selectedMembers($0, board: current) } ?? []
+        let macSelection = current.visibleCards.filter { selectedMembers.contains($0.id) }.map(\.id)
+        if mode == .practice, transport == .mac, !selection.isEmpty, macSelection.isEmpty {
+            error = "这个分组还没有卡片，请先添加内容或选择整张画布。"; return
+        }
         let messageID = current.messages.last(where: { $0.role == "user" && $0.content == content && $0.delivery == "failed" })?.id ?? UUID().uuidString
         update(boardID) { board in
             if let i = board.messages.firstIndex(where: { $0.id == messageID }) { board.messages[i].delivery = "pending" }
@@ -457,7 +531,7 @@ import SwiftUI
             do {
                 let remote = try await upload(boardID)
                 let instruction = content + "\n\n[手机画布呈现：按请求生成可阅读的卡片；需要表达逻辑时用 edges 连线并标注关系。已有卡片复用 ID。当前模板：\(boards.first { $0.id == boardID }?.template ?? "")。]"
-                _ = try await request("/api/tasks/\(remote)/messages", method: "POST", body: ["content": instruction, "selected_card_ids": selection])
+                _ = try await request("/api/tasks/\(remote)/messages", method: "POST", body: ["content": instruction, "selected_card_ids": macSelection])
                 setDelivery("accepted", messageID: messageID, boardID: boardID)
                 connected = true
                 let deadline = Date().addingTimeInterval(360)
@@ -471,7 +545,7 @@ import SwiftUI
                         activity = activities.last?["label"] as? String ?? "Agent 正在整理画布…"
                         if result["status"] as? String != "running" {
                             if let text = result["error"] as? String, !text.isEmpty { self.error = text }
-                            if selectedID == boardID { fitRequest += 1 }
+
                             break
                         }
                     } catch {
@@ -504,12 +578,19 @@ import SwiftUI
             do {
                 try await Task.sleep(for: .milliseconds(220))
                 try Task.checkCancellation()
+                if let selectedID, let live = boards.first(where: { $0.id == boardID }),
+                   !live.visibleCards.contains(where: { $0.id == selectedID }), !(live.groups ?? []).contains(where: { $0.id == selectedID }) {
+                    failPendingMessage(messageID, boardID: boardID); error = "原目标已移除，请重新选择。"; return
+                }
+                let previousSessionID = boards.first(where: { $0.id == boardID })?.editHistory?.last?.id
                 update(boardID) { board in
                     let summary = DemoCanvas.apply(prompt: content, selectedID: selectedID, to: &board)
                     if let i = board.messages.firstIndex(where: { $0.id == messageID }) { board.messages[i].delivery = "demo" }
                     board.messages.append(RadarMessage(role: "assistant", content: summary, delivery: "demo"))
                 }
-                if self.selectedID == boardID { fitRequest += 1 }
+                let last = boards.first(where: { $0.id == boardID })?.editHistory?.last
+                let session = last?.id != previousSessionID ? last! : CanvasEditSession(title: "对话", complete: true)
+                latestChange = CanvasChangeSummary(boardID: boardID, session: session, partial: false)
             } catch { failPendingMessage(messageID, boardID: boardID) }
         }
     }
@@ -617,6 +698,7 @@ extension BoardStore {
     var canRedo: Bool { !(current.redoHistory ?? []).isEmpty && voiceSession == nil }
     func undo() {
         guard canUndo, let session = current.editHistory?.last else { return }
+        if splitUndoSessionID == session.id { splitUndoSessionID = nil }
         recordingHistory = false
         update { board in
             board.editHistory?.removeLast()
@@ -627,6 +709,19 @@ extension BoardStore {
             board.redoHistory = (board.redoHistory ?? []) + [redo]
         }
         recordingHistory = true
+    }
+    func undoChanges(sessionID: String) {
+        guard voiceSession == nil, let session = current.editHistory?.first(where: { $0.id == sessionID }) else { return }
+        recordingHistory = false
+        update { board in
+            board.editHistory?.removeAll { $0.id == sessionID }
+            let before = board
+            CanvasHistory.apply(session.changes, to: &board, backwards: true)
+            var redo = session; redo.changes = CanvasHistory.diff(board, before)
+            if !redo.changes.isEmpty { board.redoHistory = (board.redoHistory ?? []) + [redo] }
+        }
+        recordingHistory = true
+        if latestChange?.id == sessionID { latestChange = nil }
     }
     func redo() {
         guard canRedo, let session = current.redoHistory?.last else { return }
@@ -640,17 +735,39 @@ extension BoardStore {
         }
         recordingHistory = true
     }
-    func splitBlock(cardID: String, blockID: String) {
-        guard let card = current.cards.first(where: { $0.id == cardID }), let block = card.effectiveBlocks.first(where: { $0.id == blockID }) else { return }
-        var node = RadarCard(title: String((block.text.isEmpty ? "素材" : block.text).prefix(40)), body: block.text, x: card.x + card.width + 70, y: card.y)
-        node.blocks = [block]
-        update { board in
-            guard let i = board.cards.firstIndex(where: { $0.id == cardID }) else { return }
-            board.cards[i].blocks = board.cards[i].effectiveBlocks.filter { $0.id != blockID }
-            board.cards[i].body = board.cards[i].blocks!.filter { $0.kind == "text" }.map(\.text).joined(separator: "\n")
-            board.cards.append(node); board.edges.append(RadarEdge(fromID: cardID, toID: node.id, label: "包含内容"))
+    @discardableResult func saveAndSplitBlock(_ card: RadarCard, baseline: RadarCard, blockID: String) -> Bool {
+        editorFeedback = nil
+        guard recordingHistory, !applyingVoice else { editorFeedback = "当前操作尚未完成，草稿已保留。"; return false }
+        guard let live = current.cards.first(where: { $0.id == card.id }) else { editorFeedback = "原节点已被删除，草稿尚未保存。"; return false }
+        guard var replacement = editorReplacement(card, baseline: baseline, current: live) else { return false }
+        guard replacement.status != "archived", let block = replacement.effectiveBlocks.first(where: { $0.id == blockID }), card.effectiveBlocks.contains(where: { $0.id == blockID }) else {
+            editorFeedback = "这项内容已被移走或放下，草稿尚未保存。"; return false
         }
-        selectedCardID = node.id
+        // Moving the block is itself an edit: do not silently move somebody else's newer revision.
+        let baseBlock = baseline.effectiveBlocks.first { $0.id == blockID }
+        let liveBlock = live.effectiveBlocks.first { $0.id == blockID }
+        let draftBlock = card.effectiveBlocks.first { $0.id == blockID }
+        if liveBlock != baseBlock && liveBlock != draftBlock { editorFeedback = "这项内容已有新修改，草稿尚未保存。请核对后再转为节点。"; return false }
+        var node = RadarCard(title: String((block.text.isEmpty ? "素材" : block.text).prefix(40)), body: block.summary, x: live.x + replacement.width + 70, y: live.y)
+        node.blocks = [block]; node.sourceIDs = live.sourceIDs
+        replacement.blocks = replacement.effectiveBlocks.filter { $0.id != blockID }
+        replacement.body = replacement.blocks!.map(\.summary).joined(separator: "\n\n")
+        if replacement.history == live.history && (replacement.title != live.title || replacement.body != live.body) { replacement.history.append(live.title + "\n\n" + live.body) }
+        var candidate = current
+        guard let index = candidate.cards.firstIndex(where: { $0.id == card.id }) else { return false }
+        candidate.cards[index] = replacement
+        candidate.cards.append(node); candidate.edges.append(RadarEdge(fromID: card.id, toID: node.id, label: "包含内容"))
+        do { try CanvasDocument(candidate).validate() }
+        catch { editorFeedback = "这次转为节点无法完成，草稿已保留。"; return false }
+        let previousSessionID = current.editHistory?.last?.id
+        update { board in board.cards = candidate.cards; board.edges = candidate.edges }
+        guard let sessionID = current.editHistory?.last?.id, sessionID != previousSessionID else { editorFeedback = "操作未完成，草稿已保留。"; return false }
+        selectedCardID = node.id; splitUndoSessionID = sessionID
+        return true
+    }
+    func splitBlock(cardID: String, blockID: String) {
+        guard let card = current.cards.first(where: { $0.id == cardID }) else { return }
+        _ = saveAndSplitBlock(card, baseline: card, blockID: blockID)
     }
     func importCanvas(_ board: RadarBoard) {
         var board = board; board.id = UUID().uuidString; board.remoteID = nil; board.workspaceMode = mode
@@ -757,6 +874,8 @@ extension BoardStore {
     /// A gesture owns one edit session; partial requests never own the whole document.
     func beginVoiceSession(requiresConfirmation: Bool = false) -> Bool {
         guard voiceSession == nil, busyBoardID == nil else { return false }
+        guard chatTargetIsValid else { error = "原目标已移除，请重新选择。"; return false }
+        requestTargetLabel = chatTargetLabel; latestChange = nil
         voiceRequiresConfirmation = requiresConfirmation; voiceAwaitingReview = false
         voiceSession = CanvasEditSession(title: requiresConfirmation ? "边说边画 Beta" : "口述"); voiceSummary = ""; clarification = nil
         voiceBoardID = selectedID; voiceSelectionID = selectedCardID; voiceTaskBase = current
@@ -837,6 +956,7 @@ extension BoardStore {
         }
         guard var session = voiceSession, let boardID = voiceBoardID else { return }
         session.complete = true
+        latestChange = CanvasChangeSummary(boardID: boardID, session: session, partial: !completed)
         voiceSession = nil; voiceBoardID = nil; busyBoardID = nil; activity = ""; voiceAwaitingReview = false
         update(boardID, trackingLocalEdits: false) { board in
             if !session.changes.isEmpty { board.editHistory = Array(((board.editHistory ?? []) + [session]).suffix(60)); board.redoHistory = [] }
@@ -858,6 +978,9 @@ extension BoardStore {
         let correction = voiceNeedsReconcile || (!voiceProcessed.isEmpty && !fullText.hasPrefix(voiceProcessed))
         let prompt = (correction ? "更正本段口述，按下面最新全文修正已有节点，不要重复创建：\n" : "继续整理这段口述，只处理新增语义，复用已存在的节点：\n") + addition
         guard var snapshot = boards.first(where: { $0.id == boardID }) else { return }
+        if let id = voiceSelectionID, !snapshot.visibleCards.contains(where: { $0.id == id }), !(snapshot.groups ?? []).contains(where: { $0.id == id }) {
+            sealVoice(completed: false); error = "原目标已移除，已保留完成的部分。请重新选择后继续。"; return
+        }
         let selectedMembers = DirectAgent.selectedMembers(voiceSelectionID, board: snapshot)
         let selectedCards = snapshot.cards.filter { selectedMembers.contains($0.id) }
         if !selectedCards.isEmpty {
@@ -916,9 +1039,14 @@ extension BoardStore {
     }
     private static func advanceModelBase(_ result: DirectAgentResult, board: inout RadarBoard) {
         for card in result.cards {
-            if let i = board.cards.firstIndex(where: { $0.id == card.id }) { board.cards[i] = card } else { board.cards.append(card) }
+            if let i = board.cards.firstIndex(where: { $0.id == card.id }) {
+                var next = card
+                next.archiveRecord = board.cards[i].archiveRecord
+                next.status = board.cards[i].status
+                board.cards[i] = next
+            } else { board.cards.append(card) }
         }
-        for i in board.cards.indices where result.removeIDs.contains(board.cards[i].id) { board.cards[i].status = "archived" }
+        for id in result.removeIDs { CanvasArchiving.archive(&board, cardID: id) }
         board.edges.removeAll { result.removeEdgeIDs.contains($0.id) || result.removeIDs.contains($0.fromID) || result.removeIDs.contains($0.toID) }
         for edge in result.edges { if let i = board.edges.firstIndex(where: { $0.id == edge.id }) { board.edges[i] = edge } else { board.edges.append(edge) } }
         var groups = board.groups ?? []
@@ -927,6 +1055,10 @@ extension BoardStore {
         board.groups = groups
     }
     @discardableResult private func applyGenerated(_ result: DirectAgentResult, base: RadarBoard, boardID: String) -> Bool {
+        if let id = voiceSelectionID, let live = boards.first(where: { $0.id == boardID }),
+           !live.visibleCards.contains(where: { $0.id == id }), !(live.groups ?? []).contains(where: { $0.id == id }) {
+            error = "原目标已移除，这一步没有应用。"; return false
+        }
         let update = CanvasUpdate(sessionID: voiceSession?.id ?? UUID().uuidString,
                                   transcriptRevision: voiceSession?.revision ?? 0, sequence: voiceSession?.sequence ?? 0,
                                   cards: result.cards, groups: result.groups, edges: result.edges,
@@ -952,9 +1084,7 @@ extension BoardStore {
         }
         for id in patch.removeIDs {
             guard let before = base.cards.first(where: { $0.id == id }), let now = board.cards.first(where: { $0.id == id }), before.hasSameContent(as: now) else { continue }
-            if let i = board.cards.firstIndex(where: { $0.id == id }) { board.cards[i].status = "archived" }
-            board.edges.removeAll { $0.fromID == id || $0.toID == id }
-            for i in (board.groups ?? []).indices { board.groups?[i].cardIDs.removeAll { $0 == id } }
+            CanvasArchiving.archive(&board, cardID: id)
         }
         for id in patch.removeGroupIDs where base.groups?.first(where: { $0.id == id }) == board.groups?.first(where: { $0.id == id }) {
             board.groups?.removeAll { $0.id == id }; board.edges.removeAll { $0.fromID == id || $0.toID == id }
@@ -1004,10 +1134,7 @@ extension BoardStore {
         guard let rect = CanvasGeometry.rect(id, in: current) else { return }
         selectedCardID = id
         let screen = UIScreen.main.bounds
-        update { board in
-            board.zoom = min(1, min((screen.width - 60) / rect.width, (screen.height - 330) / rect.height))
-            board.offsetX = screen.width / 2 - rect.midX * board.zoom
-            board.offsetY = (screen.height - 100) / 2 - rect.midY * board.zoom
-        }
+        let zoom = min(1, min((screen.width - 60) / rect.width, (screen.height - 330) / rect.height))
+        setViewport(x: screen.width / 2 - rect.midX * zoom, y: (screen.height - 100) / 2 - rect.midY * zoom, zoom: zoom)
     }
 }

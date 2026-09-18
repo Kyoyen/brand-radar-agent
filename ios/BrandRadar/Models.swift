@@ -27,10 +27,12 @@ struct RadarCard: Codable, Identifiable, Equatable {
     var history: [String] = []
     var blocks: [CanvasBlock]? = nil
     var height: Double? = nil
+    // Optional for old saves; graph recovery is part of this card's normal edit history.
+    var archiveRecord: RadarCardArchive? = nil
     var effectiveBlocks: [CanvasBlock] { blocks ?? [CanvasBlock(id: "legacy_\(id)", kind: "text", text: body)] }
     func hasSameContent(as other: RadarCard) -> Bool {
         kind == other.kind && title == other.title && body == other.body && color == other.color
-            && width == other.width && height == other.height && blocks == other.blocks && status == other.status && sourceIDs == other.sourceIDs && history == other.history
+            && width == other.width && height == other.height && blocks == other.blocks && status == other.status && sourceIDs == other.sourceIDs && history == other.history && archiveRecord == other.archiveRecord
     }
     var label: String {
         ["note": "便签", "idea": "想法", "observation": "观察", "source": "来源", "question": "问题", "calendar": "计划"][kind] ?? "便签"
