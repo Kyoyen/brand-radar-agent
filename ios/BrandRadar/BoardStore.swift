@@ -6,6 +6,7 @@ import SwiftUI
     @Published var selectedCardID: String?
     @Published var busyBoardID: String?
     @Published var error: String?
+    @Published var restorationNotice: String?
     @Published var editorFeedback: String?
     @Published var splitUndoSessionID: String?
     @Published var activity = ""
@@ -336,13 +337,18 @@ import SwiftUI
         var candidate = current
         guard let i = candidate.cards.firstIndex(where: { $0.id == card.id }) else { return false }
         candidate.cards[i] = replacement
-        if replacement.status == "archived" {
-            candidate.edges.removeAll { $0.fromID == card.id || $0.toID == card.id }
-            for index in (candidate.groups ?? []).indices { candidate.groups?[index].cardIDs.removeAll { $0 == card.id } }
+        var archiveResult = CanvasArchiveResult()
+        if live.status != "archived" && replacement.status == "archived" {
+            candidate.cards[i].status = live.status
+            archiveResult = CanvasArchiving.archive(&candidate, cardID: card.id)
+        } else if live.status == "archived" && replacement.status != "archived" {
+            candidate.cards[i].status = live.status
+            archiveResult = CanvasArchiving.restore(&candidate, cardID: card.id)
         }
         do { try CanvasDocument(candidate).validate() }
         catch { editorFeedback = "这次修改无法保存，草稿已保留。"; return false }
         update { board in board.cards = candidate.cards; board.edges = candidate.edges; board.groups = candidate.groups }
+        restorationNotice = archiveResult.message
         return true
     }
     func moveCard(_ id: String, x: Double, y: Double) {
@@ -975,9 +981,14 @@ extension BoardStore {
     }
     private static func advanceModelBase(_ result: DirectAgentResult, board: inout RadarBoard) {
         for card in result.cards {
-            if let i = board.cards.firstIndex(where: { $0.id == card.id }) { board.cards[i] = card } else { board.cards.append(card) }
+            if let i = board.cards.firstIndex(where: { $0.id == card.id }) {
+                var next = card
+                next.archiveRecord = board.cards[i].archiveRecord
+                next.status = board.cards[i].status
+                board.cards[i] = next
+            } else { board.cards.append(card) }
         }
-        for i in board.cards.indices where result.removeIDs.contains(board.cards[i].id) { board.cards[i].status = "archived" }
+        for id in result.removeIDs { CanvasArchiving.archive(&board, cardID: id) }
         board.edges.removeAll { result.removeEdgeIDs.contains($0.id) || result.removeIDs.contains($0.fromID) || result.removeIDs.contains($0.toID) }
         for edge in result.edges { if let i = board.edges.firstIndex(where: { $0.id == edge.id }) { board.edges[i] = edge } else { board.edges.append(edge) } }
         var groups = board.groups ?? []
@@ -1011,9 +1022,7 @@ extension BoardStore {
         }
         for id in patch.removeIDs {
             guard let before = base.cards.first(where: { $0.id == id }), let now = board.cards.first(where: { $0.id == id }), before.hasSameContent(as: now) else { continue }
-            if let i = board.cards.firstIndex(where: { $0.id == id }) { board.cards[i].status = "archived" }
-            board.edges.removeAll { $0.fromID == id || $0.toID == id }
-            for i in (board.groups ?? []).indices { board.groups?[i].cardIDs.removeAll { $0 == id } }
+            CanvasArchiving.archive(&board, cardID: id)
         }
         for id in patch.removeGroupIDs where base.groups?.first(where: { $0.id == id }) == board.groups?.first(where: { $0.id == id }) {
             board.groups?.removeAll { $0.id == id }; board.edges.removeAll { $0.fromID == id || $0.toID == id }

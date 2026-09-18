@@ -41,3 +41,23 @@
 ![脏草稿退出的三个选择](20260918-screens/b01-dirty-exit.png)
 ![保存并转节点后结束编辑](20260918-screens/b01-split-committed.png)
 ![一次撤销恢复原稿](20260918-screens/b01-single-undo.png)
+
+## B02：放下与恢复
+
+基于 B01 提交 `bf2d4f4`。新增可选的 `archiveRecord` 保存原采用状态、关联线与父组位置；手动放下及 API Agent 放下共用同一逻辑。恢复时只接回仍有效的对象，不覆盖人工改线、重新归组或已复用的 ID；相邻节点分批恢复、重复恢复、撤销／重做不会重复造线。已恢复的关系记录会消费，避免后来删线又被另一个归档快照复活。
+
+这是本地 Codable 字段的向后兼容扩展，无存储迁移、无新服务协议。旧画布缺少该可选字段仍能读取；缺失旧恢复信息时保留内容并明确提示，不能推测旧连线。可编辑包包含该记录和原附件，仍排除连接凭据；旧 Mac 文字更新沿用原卡对象，保留该本地字段及其他内容块。
+
+- A05—A07：3 项模拟器 UI 测试通过，包括放下后重启恢复、删除原端点／父组后的部分恢复及具体提示。
+- A08 与边界：78 项归档／关系／条件撤销检查通过；9 项真实 Store 检查通过，包含 Agent 放下路径。
+- 真实 `CanvasExport` 包往返：8 项检查通过，验证归档关系、分组、原采用状态和位置、附件原字节及导入后新路径。
+- 全部原生自检：112 个检查入口通过（其中两项分别包含上述 78 项归档与 8 项附件包细分断言），覆盖旧文字卡、旧历史、富内容附件、布局缓存、口述与 Beta 撤回。原始结果保存于 [自检结果](20260918-native-checks.json)。
+- Studio 兼容：`.venv/bin/python -u -m unittest discover -v -s tests -p 'test_studio*.py'`，26/26 通过。首次被默认 30 秒静默时限中止；详细运行确认本地 HTTP 测试正常耗时约 35 秒，采用 120 秒静默／180 秒总时限后完成。
+- UI 总计：本轮 8 项目标场景与 4 项相关回归均通过。失败过的退出拦截和隐藏第三按钮已修正并重跑通过；测试选择器歧义也已修正。截图已打开检查。
+
+独立归档逻辑命令：`xcrun swiftc -D ARCHIVE_CHECKS ios/BrandRadar/CanvasContent.swift ios/BrandRadar/CanvasEditing.swift ios/BrandRadar/CanvasArchiving.swift ios/BrandRadar/ArchiveChecks.swift -o /tmp/radar-archive-checks`，随后运行生成的检查程序。UI 调用同前，新增 `-only-testing:BrandRadarUITests/ArchiveRestoreUITests`。真实 iOS 自检使用最终 Debug 构建；没有用 Foundation fixture 替代原生模型验证。
+
+未执行：实体 iPhone 安装／操作、真人语音、真机帧率、VoiceOver、真实云端模型调用、Mac 与手机在线同步及 Web 浏览器交互。自检中的渲染计时只说明模拟器离屏绘制，不代表真机触摸帧率。本轮不宣称这些项目通过，不扩展到 B03 之后。
+
+![有效关系和分组恢复](20260918-screens/b02-restored-relations.png)
+![关联内容删除后的具体提示](20260918-screens/b02-missing-relations.png)

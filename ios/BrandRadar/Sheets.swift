@@ -173,7 +173,7 @@ struct CardEditor: View {
                         Button(card.status == "archived" ? "恢复" : "放下", systemImage: "archivebox") {
                             let status = card.status
                             card.status = status == "archived" ? "draft" : "archived"
-                            if store.editCard(card, baseline: originalCard) { store.selectedCardID = nil; dismiss() }
+                            if store.editCard(card, baseline: originalCard) { store.selectedCardID = nil; if store.restorationNotice == nil { dismiss() } }
                             else { card.status = status }
                         }.foregroundStyle(.secondary)
                     }.font(.subheadline).padding(.horizontal, 5).padding(.bottom, 10)
@@ -204,7 +204,10 @@ struct CardEditor: View {
         .alert("未能保存", isPresented: Binding(get: { store.editorFeedback != nil }, set: { if !$0 { store.editorFeedback = nil } })) {
             Button("继续编辑", role: .cancel) { store.editorFeedback = nil }
         } message: { Text(store.editorFeedback ?? "") }
-        .onAppear { store.editorFeedback = nil }
+        .alert("已恢复可用内容", isPresented: Binding(get: { store.restorationNotice != nil }, set: { if !$0 { store.restorationNotice = nil } })) {
+            Button("知道了") { store.restorationNotice = nil; dismiss() }
+        } message: { Text(store.restorationNotice ?? "") }
+        .onAppear { store.editorFeedback = nil; store.restorationNotice = nil }
         .sheet(item: $sharing) { ShareSheet(items: $0.items) }
     }
 }
