@@ -29,7 +29,6 @@ import SwiftUI
     private var persistenceTask: Task<Void, Never>?
     @Published var hasUnseenUpdates = false
     @Published var clarification: String?
-    private var voiceSummary = ""
     private var voiceBoardID: String?
     private var voiceSelectionID: String?
     private var voiceTaskBase: RadarBoard?
@@ -266,6 +265,32 @@ import SwiftUI
         if mode == .demo { boards.removeAll { $0.id == selectedID && $0.mode == .demo } }
         mode = .demo; preferences.set(mode.rawValue, forKey: "workspaceMode")
         boards.insert(board, at: 0); select(board); fitRequest += 1
+    }
+    /// Continue from the visible example as a separate personal canvas.
+    @discardableResult func copyCurrentDemoToMyBoard(draft: String? = nil) -> Bool {
+        guard mode == .demo, current.mode == .demo, voiceSession == nil, busyBoardID == nil else { return false }
+        let target = selectedCardID
+        var copy = current
+        copy.id = UUID().uuidString
+        copy.workspaceMode = .practice
+        copy.remoteID = nil
+        copy.demoStage = nil
+        copy.messages = []
+        copy.composerDraft = draft ?? copy.composerDraft
+        copy.editHistory = nil; copy.redoHistory = nil; copy.activeEditSession = nil
+        copy.pendingSpeech = nil; copy.pendingSpeechRequiresConfirmation = nil
+        copy.dirtyCardIDs = Set(copy.cards.map(\.id))
+        copy.dirtyEdgeIDs = Set(copy.edges.map(\.id))
+        copy.removedEdgeIDs = []
+        copy.updated = Date()
+        boards.insert(copy, at: 0)
+        mode = .practice; preferences.set(mode.rawValue, forKey: "workspaceMode")
+        select(copy)
+        if let target, copy.visibleCards.contains(where: { $0.id == target }) || (copy.groups ?? []).contains(where: { $0.id == target }) {
+            selectedCardID = target
+        }
+        latestChange = nil; error = nil
+        return true
     }
     func renameBoard(_ title: String) {
         let text = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -507,6 +532,11 @@ import SwiftUI
         if mode == .practice, transport == .mac, !selection.isEmpty, macSelection.isEmpty {
             error = "这个分组还没有卡片，请先添加内容或选择整张画布。"; return
         }
+        if mode == .demo, !DemoCanvas.supports(content, selectedID: selection.first) {
+            update(boardID) { $0.composerDraft = content }
+            error = "这张示例只提供预设操作。刚写的话已留在输入框；点“在我的画布中继续”就能接着做。"
+            return
+        }
         let messageID = current.messages.last(where: { $0.role == "user" && $0.content == content && $0.delivery == "failed" })?.id ?? UUID().uuidString
         update(boardID) { board in
             if let i = board.messages.firstIndex(where: { $0.id == messageID }) { board.messages[i].delivery = "pending" }
@@ -572,6 +602,11 @@ import SwiftUI
         }
     }
     private func runDemo(_ content: String, boardID: String, messageID: String, selectedID: String?) {
+        guard DemoCanvas.supports(content, selectedID: selectedID) else {
+            failPendingMessage(messageID, boardID: boardID)
+            error = "这张示例只提供预设操作。点“在我的画布中继续”就能接着做。"
+            return
+        }
         sendGeneration += 1; busyBoardID = boardID; activity = "正在展开画布…"
         runTask = Task {
             defer { busyBoardID = nil; activity = "" }
@@ -584,13 +619,14 @@ import SwiftUI
                 }
                 let previousSessionID = boards.first(where: { $0.id == boardID })?.editHistory?.last?.id
                 update(boardID) { board in
-                    let summary = DemoCanvas.apply(prompt: content, selectedID: selectedID, to: &board)
+                    _ = DemoCanvas.apply(prompt: content, selectedID: selectedID, to: &board)
                     if let i = board.messages.firstIndex(where: { $0.id == messageID }) { board.messages[i].delivery = "demo" }
-                    board.messages.append(RadarMessage(role: "assistant", content: summary, delivery: "demo"))
                 }
                 let last = boards.first(where: { $0.id == boardID })?.editHistory?.last
                 let session = last?.id != previousSessionID ? last! : CanvasEditSession(title: "对话", complete: true)
-                latestChange = CanvasChangeSummary(boardID: boardID, session: session, partial: false)
+                let actual = CanvasChangeSummary(boardID: boardID, session: session, partial: false)
+                update(boardID, trackingLocalEdits: false) { $0.messages.append(RadarMessage(role: "assistant", content: actual.text, delivery: "demo")) }
+                latestChange = actual.hasChanges ? actual : nil
             } catch { failPendingMessage(messageID, boardID: boardID) }
         }
     }
@@ -877,7 +913,7 @@ extension BoardStore {
         guard chatTargetIsValid else { error = "原目标已移除，请重新选择。"; return false }
         requestTargetLabel = chatTargetLabel; latestChange = nil
         voiceRequiresConfirmation = requiresConfirmation; voiceAwaitingReview = false
-        voiceSession = CanvasEditSession(title: requiresConfirmation ? "边说边画 Beta" : "口述"); voiceSummary = ""; clarification = nil
+        voiceSession = CanvasEditSession(title: requiresConfirmation ? "边说边画 Beta" : "口述"); clarification = nil
         voiceBoardID = selectedID; voiceSelectionID = selectedCardID; voiceTaskBase = current
         voiceRevision = 0; voicePending = ""; voiceStablePending = ""; voiceProcessed = ""; voiceReleased = false; voiceNeedsReconcile = false; voiceLastSubmittedAt = .distantPast
         error = nil
@@ -940,11 +976,13 @@ extension BoardStore {
         sealVoice(completed: voiceSession?.complete ?? false)
     }
     var voiceChangeSummary: String {
-        guard let changes = voiceSession?.changes else { return "" }
-        let additions = Set(changes.filter { $0.before == nil && $0.field == "*" }.map(\.id)).count
-        let removals = Set(changes.filter { $0.after == nil && $0.field == "*" }.map(\.id)).count
-        let edits = Set(changes.filter { $0.field != "*" }.map(\.id)).count
-        return "新增 \(additions) · 修改 \(edits) · 删除 \(removals)"
+        guard let session = voiceSession, let boardID = voiceBoardID else { return "" }
+        let summary = CanvasChangeSummary(boardID: boardID, session: session, partial: false)
+        return summary.hasChanges ? summary.text : "画布没有产生变化"
+    }
+    var voiceHasVisibleChanges: Bool {
+        guard let session = voiceSession, let boardID = voiceBoardID else { return false }
+        return CanvasChangeSummary(boardID: boardID, session: session, partial: false).hasChanges
     }
     private func sealVoice(completed: Bool) {
         if voiceRequiresConfirmation, voiceSession != nil {
@@ -956,14 +994,18 @@ extension BoardStore {
         }
         guard var session = voiceSession, let boardID = voiceBoardID else { return }
         session.complete = true
-        latestChange = CanvasChangeSummary(boardID: boardID, session: session, partial: !completed)
+        let actual = CanvasChangeSummary(boardID: boardID, session: session, partial: !completed)
+        latestChange = actual.hasChanges ? actual : nil
         voiceSession = nil; voiceBoardID = nil; busyBoardID = nil; activity = ""; voiceAwaitingReview = false
         update(boardID, trackingLocalEdits: false) { board in
-            if !session.changes.isEmpty { board.editHistory = Array(((board.editHistory ?? []) + [session]).suffix(60)); board.redoHistory = [] }
+            if actual.hasChanges { board.editHistory = Array(((board.editHistory ?? []) + [session]).suffix(60)); board.redoHistory = [] }
             if let transcript = session.transcript, !transcript.isEmpty {
                 if let i = board.messages.lastIndex(where: { $0.role == "user" && $0.content == transcript && $0.delivery == "pending" }) { board.messages[i].delivery = completed ? "local" : "failed" }
                 else { board.messages.append(RadarMessage(role: "user", content: transcript, delivery: completed ? "local" : "failed")) }
-                if completed { board.messages.append(RadarMessage(role: "assistant", content: voiceSummary.isEmpty ? "已更新画布。" : voiceSummary, delivery: "local")) }
+                if completed {
+                    let response = actual.hasChanges ? actual.text : (clarification ?? "这段话已记录，画布没有产生变化。")
+                    board.messages.append(RadarMessage(role: "assistant", content: response, delivery: "local"))
+                }
             }
             board.activeEditSession = nil
             if completed { board.pendingSpeech = nil; board.pendingSpeechRequiresConfirmation = nil }
@@ -976,7 +1018,10 @@ extension BoardStore {
         // Revisions to earlier recognized words are explicitly reconciled with the existing graph.
         let addition = fullText.hasPrefix(voiceProcessed) ? String(fullText.dropFirst(voiceProcessed.count)) : fullText
         let correction = voiceNeedsReconcile || (!voiceProcessed.isEmpty && !fullText.hasPrefix(voiceProcessed))
-        let prompt = (correction ? "更正本段口述，按下面最新全文修正已有节点，不要重复创建：\n" : "继续整理这段口述，只处理新增语义，复用已存在的节点：\n") + addition
+        let fullContext = "本段当前识别全文：\n" + fullText
+        let incrementalPrompt = fullContext + "\n\n本次新增语义：\n" + addition + "\n只处理新增部分，复用已有节点。"
+        let prompt = correction ? "更正本段口述，按最新全文修正本段已有节点，不重复创建：\n" + fullText :
+            (incrementalPrompt.count <= 15000 ? incrementalPrompt : fullContext + "\n对照画布只补尚未处理的意思，不重复创建。")
         guard var snapshot = boards.first(where: { $0.id == boardID }) else { return }
         if let id = voiceSelectionID, !snapshot.visibleCards.contains(where: { $0.id == id }), !(snapshot.groups ?? []).contains(where: { $0.id == id }) {
             sealVoice(completed: false); error = "原目标已移除，已保留完成的部分。请重新选择后继续。"; return
@@ -1014,7 +1059,6 @@ extension BoardStore {
                     // ASR revised this request's earlier words: ignore stale batches, then reconcile.
                     guard self.voicePending.hasPrefix(fullText) || self.voicePending == fullText else { return }
                     self.voiceSession?.sequence += 1; self.voiceSession?.revision = revision
-                    if !result.summary.isEmpty { self.voiceSummary = result.summary }
                     if result.summary.contains("？") || result.summary.contains("?") { self.clarification = result.summary }
                     self.applyingVoice = true
                     let applied = self.applyGenerated(result, base: base, boardID: boardID)

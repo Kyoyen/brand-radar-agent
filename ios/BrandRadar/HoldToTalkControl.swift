@@ -5,6 +5,7 @@ struct HoldToTalkControl: UIViewRepresentable {
     var title: String
     var voiceEnabled: Bool
     var active: Bool
+    var liveDrawing: Bool
     var onTap: () -> Void
     var onBegin: () -> Void
     var onCancelChange: (Bool) -> Void
@@ -12,7 +13,7 @@ struct HoldToTalkControl: UIViewRepresentable {
 
     func makeUIView(context: Context) -> HoldToTalkView { HoldToTalkView() }
     func updateUIView(_ view: HoldToTalkView, context: Context) {
-        view.configure(title: title, voiceEnabled: voiceEnabled, active: active,
+        view.configure(title: title, voiceEnabled: voiceEnabled, active: active, liveDrawing: liveDrawing,
                        onTap: onTap, onBegin: onBegin, onCancelChange: onCancelChange, onEnd: onEnd)
     }
     static func dismantleUIView(_ view: HoldToTalkView, coordinator: ()) { view.cancelIfNeeded() }
@@ -32,16 +33,16 @@ final class HoldToTalkView: UIView {
         ])
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-    func configure(title: String, voiceEnabled: Bool, active: Bool, onTap: @escaping () -> Void,
+    func configure(title: String, voiceEnabled: Bool, active: Bool, liveDrawing: Bool, onTap: @escaping () -> Void,
                    onBegin: @escaping () -> Void, onCancelChange: @escaping (Bool) -> Void, onEnd: @escaping (Bool) -> Void) {
         control.title.text = title
         control.voiceEnabled = voiceEnabled
         control.onTap = onTap; control.onBegin = onBegin; control.onCancelChange = onCancelChange; control.onEnd = onEnd
-        control.accessibilityLabel = "说出你的想法"
+        control.accessibilityLabel = liveDrawing ? "边说边画" : "输入想法"
         control.accessibilityValue = active ? title : ""
-        control.accessibilityHint = "轻点打字，按住说话，上滑取消"
+        control.accessibilityHint = liveDrawing ? "轻点打字；按住说话时画布会变化，松开后确认保留或放弃，上滑取消" : "轻点打字；按住听写，松开后可编辑草稿，上滑取消"
         control.icon.image = UIImage(systemName: active ? "waveform" : "mic.fill")
-        control.icon.backgroundColor = active ? UIColor.systemRed : UIColor(red: 0.14, green: 0.19, blue: 0.14, alpha: 1)
+        control.icon.backgroundColor = active ? UIColor(red: 0.66, green: 0.30, blue: 0.20, alpha: 1) : UIColor(red: 0.14, green: 0.19, blue: 0.14, alpha: 1)
     }
     func cancelIfNeeded() { control.cancelIfNeeded() }
 }

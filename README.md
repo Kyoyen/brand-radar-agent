@@ -1,13 +1,19 @@
-<h1 align="center">Brand Radar</h1>
+<h1 align="center">Brandar</h1>
 <p align="center"><strong>随心画板，AI 帮你落笔。</strong></p>
-<p align="center">Brand Radar Mobile · 一块可以边聊边改的无限画布</p>
+<p align="center">Brandar · 一块可以边聊边改的无限画布</p>
 
 <p align="center">
-  <img src="docs/assets/mobile/canvas.png" width="230" alt="无限画布：节点、分组和关系" />
+  <img src="docs/assets/mobile/20260924/canvas-mid.png" width="230" alt="Brandar 无限画布：节点、分组和关系" />
   <img src="docs/assets/mobile/content.png" width="230" alt="清单和表格混排" />
   <img src="docs/assets/mobile/drawing.png" width="230" alt="原生手绘与撤销重做" />
 </p>
 <p align="center"><sub>原生 iPhone App 模拟器实拍 · 示例内容</sub></p>
+
+<p align="center">
+  <img src="docs/assets/mobile/20260924/canvas-overview.png" width="230" alt="缩小后以紧凑结构标记保持画布全貌" />
+  <img src="docs/assets/mobile/20260924/live-review.png" width="230" alt="边说边画 Beta 的画布变化确认" />
+</p>
+<p align="center"><sub>全貌与 Beta 确认均为隔离的模拟器测试画面；不代表真人语音已完成验收。</sub></p>
 
 **先把想法放下来，再把关系连起来。** 日常使用 Brief 生成和修改画布；开启「边说边画 · Beta」，口述中的结构会逐步出现，松手后选择保留或放弃。文字、图片、手绘、清单和表格，都能放回它们所属的关系里。
 
@@ -21,13 +27,13 @@
 
 读了很多材料，最有价值的时刻可能是：“这个大家都在讲，但跟我们有什么关系？”也可能是：“这一小段很有意思，能不能沿着它再想想？”
 
-Brand Radar 把资料、观察和正在形成的创意放在同一张桌面上。它可以沿着问题找新依据，也可以放下牵强的方向。你圈中一张卡，告诉它哪里不对，它继续改这份作品。
+Brandar 把资料、观察和正在形成的创意放在同一张桌面上。它可以沿着问题找新依据，也可以放下牵强的方向。你圈中一张卡，告诉它哪里不对，它继续改这份作品。
 
 不必每次生成一份完整周报，也不必为了交差凑齐三个想法。
 
 ## 桌面端：调查与共同改稿
 
-![Brand Radar 企划桌面](docs/assets/brand-radar-studio.png)
+![Brandar 企划桌面](docs/assets/brand-radar-studio.png)
 
 <sub>网页 Demo 实拍。图中作品经过真实模型调查、多轮反馈与直接改稿。</sub>
 

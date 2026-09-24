@@ -9,6 +9,14 @@ import Foundation
         let arguments = ProcessInfo.processInfo.arguments
         guard arguments.contains("--uitesting"), !installed else { return }
         installed = true
+        if arguments.contains("--uitesting-overview") {
+            var overview = DemoCanvas.seed()
+            overview.id = "overview_fixture"
+            overview.offsetX = 90; overview.offsetY = 300; overview.zoom = 0.27
+            store.boards = [overview]
+            store.selectedID = overview.id
+            store.persist()
+        }
         if arguments.contains("--uitesting-library") {
             store.boards = (0..<12).map { index in
                 var board = DemoCanvas.seed()

@@ -1,13 +1,19 @@
-<h1 align="center">Brand Radar Mobile</h1>
+<h1 align="center">Brandar</h1>
 <p align="center"><strong>随心画板，AI 帮你落笔。</strong></p>
 <p align="center">边说边成图 · 素材留在身边 · 随时接着改</p>
 
 <p align="center">
-  <img src="../assets/mobile/canvas.png" width="230" alt="原生无限画布：节点、连线与分组" />
+  <img src="../assets/mobile/20260924/canvas-mid.png" width="230" alt="原生无限画布：节点、连线与分组" />
   <img src="../assets/mobile/content.png" width="230" alt="一个节点里混排可勾选清单和可编辑表格" />
   <img src="../assets/mobile/drawing.png" width="230" alt="PencilKit手绘及顶部撤销重做" />
 </p>
 <p align="center"><sub>原生 App 模拟器实拍，展示示例内容。画布、内容编辑和手绘均为可交互界面。</sub></p>
+
+<p align="center">
+  <img src="../assets/mobile/20260924/canvas-overview.png" width="230" alt="缩放到全貌时的紧凑结构标记" />
+  <img src="../assets/mobile/20260924/live-review.png" width="230" alt="边说边画 Beta 的真实变化确认界面" />
+</p>
+<p align="center"><sub>隔离的模拟器测试画面；Beta 确认图使用测试更新，不代表真人口述结果。</sub></p>
 
 ## 一句话，可以有很多条路
 

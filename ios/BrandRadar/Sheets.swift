@@ -266,6 +266,12 @@ struct ChatSheet: View {
                                         demoAction("改写这张", icon: "pencil.line", id: "demoRefineButton") { submit(DemoCanvas.refinePrompt) }.disabled(store.selectedCardID == nil)
                                         demoAction("写内容稿", icon: "text.alignleft", id: "demoCopyButton") { submit(DemoCanvas.copyPrompt) }
                                     }
+                                    Button {
+                                        if store.copyCurrentDemoToMyBoard(draft: input) { focused = true }
+                                    } label: {
+                                        Label("在我的画布中继续", systemImage: "arrow.up.right.square")
+                                            .font(.subheadline).frame(minHeight: 44)
+                                    }.accessibilityIdentifier("copyDemoToMyBoardButton")
                                 }.padding(.vertical, 12).disabled(store.busyBoardID != nil)
                             } else if store.current.messages.isEmpty {
                                 VStack(alignment: .leading, spacing: 24) {
@@ -358,8 +364,12 @@ struct ChatSheet: View {
                             Button { store.error = nil } label: { Image(systemName: "xmark.circle") }.accessibilityLabel("关闭提示")
                         }.padding(.horizontal, 9)
                     }
-                    if speech.recording {
-                        HStack { Image(systemName: "waveform").symbolEffect(.variableColor); Text("正在听…").font(.caption) }.foregroundStyle(.red)
+                    if speech.starting || speech.recording || speech.finishing {
+                        HStack(spacing: 8) {
+                            Image(systemName: "waveform")
+                            Text(speech.finishing ? "正在完成听写…" : speech.starting ? "正在准备麦克风…" : "正在听写，可先检查文字")
+                                .font(.caption)
+                        }.foregroundStyle(.secondary).accessibilityIdentifier("chatDictationState")
                     }
                     if store.isRunning {
                         Button { Task { await store.stop() } } label: { Label("停止整理", systemImage: "stop.circle").frame(minHeight: 44) }
@@ -368,9 +378,14 @@ struct ChatSheet: View {
                     HStack(alignment: .bottom, spacing: 12) {
                         Button {
                             if speech.recording { speech.finish { text in if !text.isEmpty { input = speechPrefix + text }; focused = true } }
-                            else { speechPrefix = input.isEmpty ? "" : input + "\n"; Task { await speech.start(requireOnDevice: store.mode == .demo) } }
+                            else {
+                                focused = false
+                                speechPrefix = input.isEmpty ? "" : input + "\n"
+                                Task { await speech.start(requireOnDevice: store.mode == .demo) }
+                            }
                         } label: { Image(systemName: speech.recording ? "stop.circle.fill" : "mic").font(.system(size: 21)).frame(width: 44, height: 44) }
-                            .accessibilityLabel(speech.recording ? "结束听写" : "开始听写").disabled(speech.starting || speech.finishing)
+                            .accessibilityLabel(speech.recording ? "结束听写，编辑草稿" : "开始听写草稿")
+                            .disabled(speech.starting || speech.finishing || store.busyBoardID != nil)
                         TextField("说出你的想法", text: $input, axis: .vertical).lineLimit(1...6).focused($focused).padding(.vertical, 11).accessibilityIdentifier("composerInput")
                         Button {
                             submit(input)

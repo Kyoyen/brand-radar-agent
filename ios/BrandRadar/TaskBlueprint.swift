@@ -12,7 +12,7 @@ struct TaskBlueprint {
         let command = prompt.components(separatedBy: "\n选中素材内容").first ?? prompt
         var result = TaskBlueprint()
         let numeral = "([0-9０-９零〇一二两三四五六七八九十百千]+)"
-        let quantity = "(?:生成|创建|新增|新建|做出|制作|做|给我|给出|想要|来)\\s*" + numeral + "\\s*(?:张|个)\\s*(?:内容)?(卡片|卡|画布)"
+        let quantity = "(?:生成|创建|新增|新建|添加|增加|加上|加|补充|做出|制作|做|给我|给出|想要|来)\\s*" + numeral + "\\s*(?:张|个)\\s*(?:内容)?(卡片|卡|画布)"
         for match in matches(quantity, in: command) where !negated(match.range, in: command) {
             guard let count = number(capture(1, match, command)) else { continue }
             result.newCardCount = count

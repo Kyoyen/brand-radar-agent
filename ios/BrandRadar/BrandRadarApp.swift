@@ -65,6 +65,7 @@ struct WorkspaceView: View {
     @State private var importingCanvas = false
     @StateObject private var dockSpeech = SpeechInput()
     @State private var dockHeight: CGFloat = 120
+    @State private var voicePanelHeight: CGFloat = 0
     @State private var liveDrawing = false
     @State private var holdingVoice = false
     @State private var cancellingVoice = false
@@ -72,7 +73,7 @@ struct WorkspaceView: View {
     private let ink = Color(red: 0.14, green: 0.19, blue: 0.14)
     var body: some View {
         ZStack {
-            InfiniteCanvas(store: store, bottomInset: sheet == .chat && chatDetent == .medium ? max(dockHeight + 105, UIScreen.main.bounds.height * 0.52) : dockHeight + 105,
+            InfiniteCanvas(store: store, bottomInset: sheet == .chat && chatDetent == .medium ? max(dockHeight + voicePanelHeight + 45, UIScreen.main.bounds.height * 0.52) : dockHeight + voicePanelHeight + 45,
                            onRead: { id in reading = ReadingTarget(boardID: store.selectedID, cardID: id) },
                            onContinue: { id in store.selectedCardID = id; sheet = .chat }) { id in
                 editingCard = store.current.cards.first { $0.id == id }
@@ -122,11 +123,14 @@ struct WorkspaceView: View {
                         .padding(.horizontal, 22).padding(.bottom, 10)
                 }
                 changeBar
+                voicePanel
+                    .background(GeometryReader { proxy in Color.clear.preference(key: VoicePanelHeightKey.self, value: proxy.size.height) })
                 chatDock
                     .background(GeometryReader { proxy in Color.clear.preference(key: DockHeightKey.self, value: proxy.size.height) })
             }
         }
         .onPreferenceChange(DockHeightKey.self) { if abs(dockHeight - $0) > 1 { dockHeight = $0 } }
+        .onPreferenceChange(VoicePanelHeightKey.self) { if abs(voicePanelHeight - $0) > 1 { voicePanelHeight = $0 } }
         .foregroundStyle(ink)
         .sheet(item: $sheet) { item in
             switch item {
@@ -187,7 +191,7 @@ struct WorkspaceView: View {
                 Image(systemName: "square.stack.3d.up").font(.system(size: 19)).frame(width: 44, height: 44)
             }.background(.white.opacity(0.82), in: Circle()).accessibilityLabel("我的画布").accessibilityIdentifier("boardsButton").disabled(store.voiceSession != nil)
             VStack(alignment: .leading, spacing: 3) {
-                Text("BRAND RADAR").font(.system(size: 9, weight: .bold, design: .monospaced)).tracking(2.4)
+                Text("BRANDAR").font(.system(size: 9, weight: .bold, design: .monospaced)).tracking(2.4)
                 Text(store.current.title).font(.system(size: 16, weight: .semibold)).lineLimit(1).accessibilityIdentifier("boardTitle")
             }
             Spacer(minLength: 0)
@@ -223,51 +227,20 @@ struct WorkspaceView: View {
     private var chatDock: some View {
         VStack(spacing: 0) {
             HStack {
-                Button { liveDrawing = false } label: { Text("Brief").fontWeight(liveDrawing ? .regular : .semibold) }
+                Button { liveDrawing = false } label: { Text("听写 / 打字").fontWeight(liveDrawing ? .regular : .semibold) }
                     .accessibilityIdentifier("briefModeButton")
                 Button { liveDrawing = true } label: { Text("边说边画 · Beta").fontWeight(liveDrawing ? .semibold : .regular) }
                     .accessibilityIdentifier("liveDrawingModeButton")
                 Spacer()
             }.font(.caption).buttonStyle(.plain).padding(.horizontal, 22).padding(.top, 14)
                 .disabled(holdingVoice || dockSpeech.finishing || store.voiceSession != nil)
-            if store.voiceAwaitingReview {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("保留这次变化？").font(.subheadline.weight(.semibold)).accessibilityIdentifier("liveDrawingReview")
-                    Text(store.voiceChangeSummary).font(.caption).foregroundStyle(.secondary)
-                    HStack {
-                        Button("放弃") { store.cancelVoiceSession() }.frame(minWidth: 64, minHeight: 44).accessibilityIdentifier("discardLiveDrawingButton")
-                        Spacer()
-                        Button { store.keepVoiceChanges() } label: { Text("保留").foregroundStyle(.white).frame(minWidth: 48, minHeight: 28) }.buttonStyle(.borderedProminent).accessibilityIdentifier("keepLiveDrawingButton")
-                    }
-                }.padding(16).background(ink.opacity(0.04), in: RoundedRectangle(cornerRadius: 16)).padding(12)
-            }
-            if holdingVoice || dockSpeech.finishing || (liveDrawing && store.voiceSession != nil && !store.voiceAwaitingReview) {
-                HStack(spacing: 8) {
-                    Image(systemName: cancellingVoice ? "xmark.circle" : "waveform")
-                    Text(voiceTitle).font(.caption).accessibilityIdentifier("voiceState")
-                    Spacer()
-                    Button("取消") { cancelDockVoice() }.font(.caption).accessibilityIdentifier("cancelVoiceButton")
-                }.foregroundStyle(cancellingVoice ? .secondary : .primary).padding(.horizontal, 19).padding(.top, 13)
-            }
-            if holdingVoice || dockSpeech.finishing || (liveDrawing && store.voiceSession != nil) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(dockSpeech.transcript.isEmpty ? store.voiceSession?.transcript ?? "正在聆听…" : dockSpeech.transcript)
-                        .font(.system(size: 15)).lineLimit(4).frame(maxWidth: .infinity, alignment: .leading)
-                        .accessibilityIdentifier("liveTranscript")
-                    if liveDrawing { Text(store.voiceChangeSummary).font(.caption2).foregroundStyle(.secondary).accessibilityIdentifier("liveChangeSummary") }
-                }.padding(.horizontal, 19).padding(.top, 8)
-            }
-            if let clarification = store.clarification {
-                if store.voiceSession != nil {
-                    Text(clarification).font(.caption).multilineTextAlignment(.leading).lineLimit(3).padding(.horizontal, 19).padding(.top, 12)
-                } else {
-                    Button { sheet = .chat } label: { Text(clarification).font(.caption).multilineTextAlignment(.leading).lineLimit(3) }.padding(.horizontal, 19).padding(.top, 12)
-                }
+            if let clarification = store.clarification, store.voiceSession == nil {
+                Button { sheet = .chat } label: { Text(clarification).font(.caption).multilineTextAlignment(.leading).lineLimit(3) }.padding(.horizontal, 19).padding(.top, 12)
             }
             if store.voiceSession == nil, !(store.current.pendingSpeech ?? "").isEmpty {
                 Button("继续整理刚才的话") { store.resumeVoice() }.font(.caption).padding(.top, 12)
             }
-            if store.isRunning {
+            if store.isRunning && store.voiceSession == nil {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
                     Text(store.activity).font(.caption).lineLimit(1)
@@ -282,17 +255,90 @@ struct WorkspaceView: View {
                 Rectangle().fill(ink.opacity(0.12)).frame(width: 1, height: 25)
                 HoldToTalkControl(title: voiceTitle, voiceEnabled: (holdingVoice || (!store.isRunning && store.voiceSession == nil)) && !dockSpeech.finishing,
                                   active: holdingVoice || dockSpeech.finishing,
+                                  liveDrawing: liveDrawing,
                                   onTap: { guard store.voiceSession == nil else { return }; interruptDockVoice(); sheet = .chat },
                                   onBegin: beginDockVoice,
                                   onCancelChange: { cancellingVoice = $0 },
                                   onEnd: endDockVoice)
                     .frame(height: 48)
+                    .opacity(store.voiceAwaitingReview ? 0.48 : 1)
+                    .allowsHitTesting(!store.voiceAwaitingReview)
 
             }.padding(.horizontal, 13).padding(.vertical, 14)
         }.background(.white.opacity(0.96), in: RoundedRectangle(cornerRadius: 28))
             .overlay(RoundedRectangle(cornerRadius: 28).strokeBorder(.black.opacity(0.04)))
             .shadow(color: .black.opacity(0.06), radius: 18, y: 4)
             .padding(.horizontal, 16).padding(.bottom, 8)
+    }
+    @ViewBuilder private var voicePanel: some View {
+        if store.voiceAwaitingReview {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("保留这次画布变化？").font(.subheadline.weight(.semibold)).accessibilityIdentifier("liveDrawingReview")
+                    Spacer()
+                    Button("查看全貌") { store.fitRequest += 1 }
+                        .font(.caption).frame(minHeight: 44).accessibilityIdentifier("reviewFitButton")
+                }
+                Text(hasVoiceChanges ? store.voiceChangeSummary : "画布没有产生变化")
+                    .font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("liveChangeSummary")
+                HStack(spacing: 12) {
+                    Button(hasVoiceChanges ? "放弃本次变化" : "放弃口述") { store.cancelVoiceSession() }
+                        .frame(minHeight: 44).accessibilityIdentifier("discardLiveDrawingButton")
+                    Spacer()
+                    Button(hasVoiceChanges ? "保留变化" : "保留口述") { store.keepVoiceChanges() }
+                        .buttonStyle(.borderedProminent).frame(minHeight: 44)
+                        .accessibilityIdentifier("keepLiveDrawingButton")
+                }.font(.subheadline)
+            }
+            .padding(.horizontal, 16).padding(.vertical, 10)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
+            .padding(.horizontal, 18).padding(.bottom, 8)
+        } else if holdingVoice || dockSpeech.finishing || (liveDrawing && store.voiceSession != nil) {
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(spacing: 7) {
+                    Image(systemName: cancellingVoice ? "xmark.circle.fill" : "waveform")
+                        .foregroundStyle(cancellingVoice ? .orange : ink)
+                    Text(liveDrawing ? "边说边画 · Beta" : "听写草稿")
+                        .font(.caption.weight(.semibold))
+                    Spacer()
+                    Text(voiceTitle).font(.caption).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("voiceState")
+                    Button("取消") { cancelDockVoice() }.font(.caption)
+                        .frame(minWidth: 44, minHeight: 44).accessibilityIdentifier("cancelVoiceButton")
+                }
+                Text(voiceTranscriptPreview)
+                    .font(.subheadline).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityLabel(voiceTranscript)
+                    .accessibilityIdentifier("liveTranscript")
+                if liveDrawing {
+                    Text(voiceCanvasStatus).font(.caption2).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("liveChangeSummary")
+                } else {
+                    Text("松开后可检查和修改文字，再决定是否发送")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+                if let clarification = store.clarification, liveDrawing {
+                    Text(clarification).font(.caption).lineLimit(2)
+                }
+            }
+            .padding(.horizontal, 15).padding(.vertical, 7)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
+            .padding(.horizontal, 18).padding(.bottom, 8)
+        }
+    }
+    private var hasVoiceChanges: Bool { store.voiceHasVisibleChanges }
+    private var voiceTranscript: String {
+        let text = dockSpeech.transcript.isEmpty ? store.voiceSession?.transcript ?? "" : dockSpeech.transcript
+        return text.isEmpty ? (dockSpeech.starting ? "正在准备麦克风…" : "正在聆听…") : text
+    }
+    private var voiceTranscriptPreview: String {
+        let text = voiceTranscript
+        return text.count > 100 ? "…" + String(text.suffix(100)) : text
+    }
+    private var voiceCanvasStatus: String {
+        if hasVoiceChanges { return store.voiceChangeSummary }
+        if store.isRunning { return "正在整理画布…" }
+        return "画布还没有变化"
     }
     @ViewBuilder private var changeBar: some View {
         if let result = store.latestChange, result.boardID == store.selectedID {
@@ -329,11 +375,13 @@ struct WorkspaceView: View {
         store.focusNode(targets[changeIndex % targets.count]); changeIndex += 1
     }
     private var voiceTitle: String {
+        if store.voiceAwaitingReview { return "请先保留或放弃" }
         if cancellingVoice { return "松开取消" }
-        if dockSpeech.finishing { return "正在转写…" }
+        if dockSpeech.finishing { return liveDrawing ? "正在完成画布…" : "正在完成听写…" }
         if dockSpeech.starting { return "正在准备…" }
-        if holdingVoice { return "松开结束" }
-        return "说出你的想法"
+        if holdingVoice { return liveDrawing ? "松开后确认" : "松开查看草稿" }
+        if liveDrawing && store.voiceSession != nil { return store.isRunning ? "正在整理画布…" : "正在等待画布变化…" }
+        return liveDrawing ? "按住，边说边画" : "轻点打字 · 按住听写"
     }
     private func beginDockVoice() {
         guard !store.isRunning, store.voiceSession == nil, !dockSpeech.finishing else { return }
@@ -393,6 +441,10 @@ struct ShareSheet: UIViewControllerRepresentable {
 
 private struct DockHeightKey: PreferenceKey {
     static var defaultValue: CGFloat = 120
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+private struct VoicePanelHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
 

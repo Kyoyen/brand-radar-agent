@@ -122,6 +122,7 @@ extension DirectAgent {
                 try await MainActor.run {
                     try Task.checkCancellation()
                     onUpdate(update)
+                    try Task.checkCancellation()
                 }
             }
             if completed { return }
@@ -141,7 +142,7 @@ extension DirectAgent {
             else { board.cards.append(card) }
         }
         for i in board.cards.indices where result.removeIDs.contains(board.cards[i].id) { board.cards[i].status = "archived" }
-        board.edges.removeAll { result.removeEdgeIDs.contains($0.id) }
+        board.edges.removeAll { result.removeEdgeIDs.contains($0.id) || result.removeIDs.contains($0.fromID) || result.removeIDs.contains($0.toID) || result.removeGroupIDs.contains($0.fromID) || result.removeGroupIDs.contains($0.toID) }
         for edge in result.edges {
             if let i = board.edges.firstIndex(where: { $0.id == edge.id }) { board.edges[i] = edge }
             else { board.edges.append(edge) }
@@ -150,6 +151,10 @@ extension DirectAgent {
         for group in result.groups {
             if let i = groups.firstIndex(where: { $0.id == group.id }) { groups[i] = group }
             else { groups.append(group) }
+        }
+        for i in groups.indices {
+            groups[i].cardIDs.removeAll { result.removeIDs.contains($0) }
+            groups[i].groupIDs?.removeAll { result.removeGroupIDs.contains($0) }
         }
         board.groups = groups
         return board

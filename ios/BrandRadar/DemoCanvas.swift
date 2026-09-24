@@ -6,6 +6,15 @@ enum DemoCanvas {
     static let refinePrompt = "演示：保留这个方向，把表达改得更轻快、更适合手机阅读。"
     static let copyPrompt = "演示：把这个想法做成一条可以分享的内容稿。"
 
+    static func supports(_ prompt: String, selectedID: String?) -> Bool {
+        switch prompt {
+        case startPrompt: return selectedID == nil
+        case refinePrompt: return selectedID != nil
+        case copyPrompt: return true
+        default: return false
+        }
+    }
+
     static func seed() -> RadarBoard {
         var board = BoardTemplate.campaign.make()
         let stableIDs = ["demo_brief", "demo_idea", "demo_question", "demo_action"]
@@ -24,6 +33,7 @@ enum DemoCanvas {
     }
 
     static func apply(prompt: String, selectedID: String?, to board: inout RadarBoard) -> String {
+        guard supports(prompt, selectedID: selectedID) else { return "这张示例只支持预设操作。" }
         if let selectedID, let group = board.groups?.first(where: { $0.id == selectedID }) {
             let members = DirectAgent.selectedMembers(group.id, board: board)
             let ids = board.visibleCards.filter { members.contains($0.id) }.map(\.id)

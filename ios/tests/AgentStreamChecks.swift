@@ -157,6 +157,7 @@ final class StreamStub: URLProtocol {
         let plain = TaskBlueprint.from(prompt: "把原因和结果连起来")
         expect(plain.instructions.isEmpty && plain.newCardCount == nil, "ordinary brief unaffected")
         expect(TaskBlueprint.from(prompt: "直接生成5张卡片").newCardCount == 5, "explicit Arabic card quantity")
+        expect(TaskBlueprint.from(prompt: "再加三张卡片").newCardCount == 3, "spoken add-card quantity")
         expect(TaskBlueprint.from(prompt: "帮我生成十二张卡片").newCardCount == 12, "Chinese card quantity")
         expect(TaskBlueprint.from(prompt: "给我３张画布").newCardCount == 3 && TaskBlueprint.from(prompt: "给我３张画布").canvasWordMeansNodes, "canvas wording stays inside current document")
         expect(TaskBlueprint.from(prompt: "不要生成5张卡片，生成两张卡片").newCardCount == 2, "negated count is ignored")
@@ -211,6 +212,30 @@ final class StreamStub: URLProtocol {
         let canvasWords = TaskBlueprint.from(prompt: "生成1张画布")
         let summaryResult = DirectAgentResult(cards: [], edges: [], removeIDs: [], removeEdgeIDs: [], summary: "已创建独立文档")
         expect(canvasWords.presented(summaryResult, initial: empty, candidate: partialBoard).summary == "已在当前画布内新增1张内容卡。", "canvas alias summary cannot claim independent documents")
+        var archiveBoard = empty
+        archiveBoard.cards = [RadarCard(id: "shared", title: "共用物料", body: ""), RadarCard(id: "branch", title: "分支", body: "")]
+        archiveBoard.groups = [RadarGroup(id: "plan", title: "计划", cardIDs: ["shared", "branch"])]
+        archiveBoard.edges = [RadarEdge(id: "dependency", fromID: "shared", toID: "branch", label: "共用")]
+        let archived = DirectAgentResult(cards: [], edges: [], removeIDs: ["shared"], removeEdgeIDs: [], summary: "放下共用物料")
+        let continued = DirectAgent.accumulating(archived, into: archiveBoard)
+        expect(continued.cards.first(where: { $0.id == "shared" })?.status == "archived" && continued.groups?.first?.cardIDs == ["branch"] && continued.edges.isEmpty,
+               "next streaming batch sees archived node detached from groups and edges")
+        let sharedPlan = try DirectAgent.validate(patch: [
+            "cards": [["id": "materials", "title": "共用物料"], ["id": "warmup", "title": "预热"],
+                      ["id": "event", "title": "活动当天"], ["id": "after", "title": "后续"]],
+            "edges": [["id": "to_warmup", "from_id": "materials", "to_id": "warmup", "label": "共用"],
+                      ["id": "to_event", "from_id": "materials", "to_id": "event", "label": "共用"],
+                      ["id": "to_after", "from_id": "materials", "to_id": "after", "label": "共用"]],
+            "remove_ids": [], "remove_edge_ids": [], "summary": "分支共用一份物料"
+        ], board: empty, selectedID: nil)
+        let planned = DirectAgent.accumulating(sharedPlan, into: empty)
+        expect(planned.cards.count == 4 && planned.edges.count == 3 && planned.edges.allSatisfy { $0.fromID == "materials" },
+               "one shared dependency can connect to three distinct branches")
+        let revisedEvent = try DirectAgent.validate(patch: ["cards": [["id": "event", "title": "活动当天 · 线下"]],
+            "edges": [], "remove_ids": [], "remove_edge_ids": [], "summary": "当天改为线下"], board: planned, selectedID: "event")
+        let revisedPlan = DirectAgent.accumulating(revisedEvent, into: planned)
+        expect(revisedPlan.cards.count == 4 && revisedPlan.cards.first(where: { $0.id == "event" })?.title == "活动当天 · 线下",
+               "selected correction changes the existing branch instead of adding a duplicate")
         print("AgentStreamChecks PASS: \(count) checks; URLProtocol only, model fixtures, no remote request.")
     }
 }

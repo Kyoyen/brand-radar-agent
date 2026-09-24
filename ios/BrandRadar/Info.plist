@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleDevelopmentRegion</key><string>$(DEVELOPMENT_LANGUAGE)</string>
-    <key>CFBundleDisplayName</key><string>Brand Radar</string>
+    <key>CFBundleDisplayName</key><string>Brandar</string>
     <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
     <key>CFBundleIdentifier</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
     <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
@@ -18,12 +18,12 @@
     </dict></array>
     <key>UTExportedTypeDeclarations</key><array><dict>
         <key>UTTypeIdentifier</key><string>com.keyuanshi.brandradar.canvas</string>
-        <key>UTTypeDescription</key><string>Brand Radar 画布</string>
+        <key>UTTypeDescription</key><string>Brandar 画布</string>
         <key>UTTypeConformsTo</key><array><string>public.data</string></array>
         <key>UTTypeTagSpecification</key><dict><key>public.filename-extension</key><array><string>radarcanvas</string></array></dict>
     </dict></array>
     <key>CFBundleDocumentTypes</key><array><dict>
-        <key>CFBundleTypeName</key><string>Brand Radar 画布</string>
+        <key>CFBundleTypeName</key><string>Brandar 画布</string>
         <key>CFBundleTypeRole</key><string>Editor</string>
         <key>LSHandlerRank</key><string>Owner</string>
         <key>LSItemContentTypes</key><array><string>com.keyuanshi.brandradar.canvas</string></array>

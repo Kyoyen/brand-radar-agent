@@ -19,7 +19,7 @@ final class BrandRadarUITests: XCTestCase {
             XCTAssertTrue(app.buttons[identifier].exists, "Missing primary control: \(identifier)")
         }
         XCTAssertFalse(app.buttons["modeButton"].exists)
-        XCTAssertEqual(app.buttons["chatButton"].label, "说出你的想法")
+        XCTAssertEqual(app.buttons["chatButton"].label, "输入想法")
     }
 
     func testChatComposerAcceptsABrief() {

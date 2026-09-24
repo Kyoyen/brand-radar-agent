@@ -225,17 +225,24 @@ private struct ChecklistBlockEditor: View {
 private struct TableBlockEditor: View {
     @Binding var block: CanvasBlock
     @State private var selection: TableCell?
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     private struct TableCell: Identifiable { var row: Int; var column: Int; var id: String { "\(row)_\(column)" } }
+    private var cellWidth: CGFloat { dynamicTypeSize.isAccessibilitySize ? 184 : 128 }
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                if !block.text.isEmpty { Text(block.text).font(.headline).frame(maxWidth: .infinity, alignment: .leading) }
+                TextField("表格标题", text: $block.text)
+                    .font(.headline)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("tableTitle_\(block.id)")
                 Spacer(minLength: 0)
                 Menu {
                     Button("添加行", systemImage: "plus") { block.rows.append(Array(repeating: "", count: max(1, block.rows.first?.count ?? 2))) }
                     Button("添加列", systemImage: "plus") { block.rows = block.rows.isEmpty ? [[""]] : block.rows.map { $0 + [""] } }
-                    Button("删除末行", role: .destructive) { if !block.rows.isEmpty { block.rows.removeLast() } }
+                    Button("删除末行", role: .destructive) { block.rows.removeLast() }
+                        .disabled(block.rows.count <= 1)
                     Button("删除末列", role: .destructive) { block.rows = block.rows.map { Array($0.dropLast()) } }
+                        .disabled((block.rows.first?.count ?? 0) <= 1)
                 } label: { Label("编辑表格", systemImage: "tablecells").font(.caption).frame(minHeight: 44) }
                 .accessibilityIdentifier("tableActions_\(block.id)")
             }
@@ -249,10 +256,25 @@ private struct TableBlockEditor: View {
                                         .font(row == 0 ? .subheadline.weight(.semibold) : .subheadline)
                                         .foregroundStyle(block.rows[row][column].isEmpty ? .secondary : .primary)
                                         .multilineTextAlignment(.leading).lineLimit(4)
-                                        .frame(width: 112, height: rowHeight(row) - 24, alignment: .leading).padding(12)
+                                        .frame(width: cellWidth, height: rowHeight(row) - 24, alignment: .leading).padding(12)
                                         .background(row == 0 ? RadarPalette.sage.opacity(0.65) : row.isMultiple(of: 2) ? Color.white.opacity(0.5) : RadarPalette.paper)
                                         .contentShape(Rectangle())
-                                }.buttonStyle(.plain).accessibilityLabel("第 \(row + 1) 行，第 \(column + 1) 列，\(block.rows[row][column].isEmpty ? "空白" : block.rows[row][column])")
+                                }.buttonStyle(.plain)
+                                    .contextMenu {
+                                        Button("删除第 \(row + 1) 行", systemImage: "minus", role: .destructive) {
+                                            block.rows.remove(at: row)
+                                            selection = nil
+                                        }.disabled(block.rows.count <= 1)
+                                        Button("删除第 \(column + 1) 列", systemImage: "minus", role: .destructive) {
+                                            block.rows = block.rows.map { cells in
+                                                var updated = cells
+                                                if updated.indices.contains(column) { updated.remove(at: column) }
+                                                return updated
+                                            }
+                                            selection = nil
+                                        }.disabled((block.rows.first?.count ?? 0) <= 1)
+                                    }
+                                    .accessibilityLabel("第 \(row + 1) 行，第 \(column + 1) 列，\(block.rows[row][column].isEmpty ? "空白" : block.rows[row][column])")
                                     .accessibilityIdentifier("tableCell_\(row)_\(column)")
                             }
                         }
@@ -273,7 +295,7 @@ private struct TableBlockEditor: View {
     }
     private func rowHeight(_ row: Int) -> CGFloat {
         let font = UIFont.preferredFont(forTextStyle: .subheadline)
-        return max(48, min(font.lineHeight * 4 + 24, block.rows[row].map { ($0 as NSString).boundingRect(with: CGSize(width: 112, height: 1000), options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: [.font: font], context: nil).height + 24 }.max() ?? 48))
+        return max(48, min(font.lineHeight * 4 + 24, block.rows[row].map { ($0 as NSString).boundingRect(with: CGSize(width: cellWidth, height: 1000), options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: [.font: font], context: nil).height + 24 }.max() ?? 48))
     }
 }
 

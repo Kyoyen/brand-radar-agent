@@ -10,6 +10,9 @@ final class CanvasGeometryCache {
     private(set) var rects: [String: CGRect] = [:]
     private(set) var curves: [String: Curve] = [:]
     private(set) var curveBounds: [String: CGRect] = [:]
+    private(set) var displayRects: [String: CGRect] = [:]
+    private(set) var displayCurves: [String: Curve] = [:]
+    private(set) var displayCurveBounds: [String: CGRect] = [:]
     private(set) var orderedGroups: [RadarGroup] = []
     private(set) var measurements = 0
     private var previousCards: [String: RadarCard] = [:]
@@ -18,6 +21,7 @@ final class CanvasGeometryCache {
     private var endpoints: [String: (CGRect, CGRect)] = [:]
     private var previewStrings: [String: String] = [:]
     private var richPreviews: [String: CanvasRichPreview.Prepared] = [:]
+    private var presentationScale: CGFloat = 1
 
     func update(_ board: RadarBoard) {
         cards = board.visibleCards; groups = board.groups ?? []; edges = board.edges
@@ -31,7 +35,7 @@ final class CanvasGeometryCache {
             nextRects[card.id] = CGRect(x: card.x, y: card.y, width: size.width, height: size.height)
             nextCards[card.id] = card
             if previousCards[card.id]?.body != card.body || previousCards[card.id]?.blocks != card.blocks {
-                previewStrings[card.id] = card.effectiveBlocks.map(\.summary).joined(separator: "\n")
+                previewStrings[card.id] = String(card.effectiveBlocks.map(\.summary).joined(separator: "\n").prefix(320))
                 richPreviews[card.id] = CanvasRichPreview.prepare(blocks: card.effectiveBlocks)
             }
         }
@@ -50,6 +54,12 @@ final class CanvasGeometryCache {
             }
         }
         rebuildGroupsAndEdges()
+        rebuildPresentation()
+    }
+    func setPresentationScale(_ scale: CGFloat) {
+        guard presentationScale != scale else { return }
+        presentationScale = scale
+        rebuildPresentation()
     }
     func richPreview(for id: String) -> CanvasRichPreview.Prepared? { richPreviews[id] }
     func preview(for id: String) -> String { previewStrings[id] ?? "" }
@@ -67,6 +77,7 @@ final class CanvasGeometryCache {
             rect.origin = CGPoint(x: origin.x + delta.x, y: origin.y + delta.y); rects[id] = rect
         }
         rebuildGroupsAndEdges()
+        rebuildPresentation()
     }
     func resize(id: String, size: CGSize) {
         if var rect = rects[id], previousCards[id] != nil {
@@ -77,6 +88,7 @@ final class CanvasGeometryCache {
             group.width = size.width; group.height = size.height; groupsByID[id] = group
         }
         rebuildGroupsAndEdges()
+        rebuildPresentation()
     }
     var contentBounds: CGRect? {
         let visible = rects.filter { !hiddenIDs.contains($0.key) }.map(\.value) + Array(curveBounds.values)
@@ -114,5 +126,44 @@ final class CanvasGeometryCache {
             nextBounds[edge.id] = curve.0.bounds.insetBy(dx: -12, dy: -12).union(label)
         }
         curves = nextCurves; curveBounds = nextBounds; endpoints = nextEndpoints
+    }
+    private func rebuildPresentation() {
+        displayRects = rects
+        for card in cards {
+            guard let rect = rects[card.id] else { continue }
+            displayRects[card.id] = CanvasStyle.presentationRect(rect, scale: presentationScale)
+        }
+        func resolveGroup(_ id: String, visiting: Set<String>) -> CGRect? {
+            guard let base = rects[id], let group = groupsByID[id], !visiting.contains(id) else { return nil }
+            let target = CanvasStyle.presentationRect(base, scale: presentationScale)
+            guard group.collapsed != true else { displayRects[id] = target; return target }
+            let children = group.cardIDs.compactMap { displayRects[$0] }
+                + (group.groupIDs ?? []).compactMap { resolveGroup($0, visiting: visiting.union([id])) }
+            guard let first = children.first else { displayRects[id] = target; return target }
+            let union = children.dropFirst().reduce(first) { $0.union($1) }
+            let padded = CGRect(x: union.minX - 24, y: union.minY - 54, width: union.width + 48, height: union.height + 78)
+            let frame = target.union(padded)
+            displayRects[id] = frame
+            return frame
+        }
+        for group in groups { _ = resolveGroup(group.id, visiting: []) }
+        // Reuse the measured world curves at reading scale. At overview scale,
+        // connectors attach to the visible card borders instead of empty space.
+        if presentationScale >= 0.9 {
+            displayCurves = curves; displayCurveBounds = curveBounds
+            return
+        }
+        var nextCurves: [String: Curve] = [:]
+        var nextBounds: [String: CGRect] = [:]
+        for edge in edges {
+            guard let aID = visibleEndpoint(edge.fromID), let bID = visibleEndpoint(edge.toID), aID != bID,
+                  let a = displayRects[aID], let b = displayRects[bID] else { continue }
+            let curve = CanvasGeometry.curve(from: a, to: b)
+            nextCurves[edge.id] = curve
+            let middle = CGPoint(x: (curve.1.x + curve.2.x) / 2, y: (curve.1.y + curve.2.y) / 2)
+            let label = edge.label.isEmpty ? CGRect(origin: middle, size: .zero) : CGRect(x: middle.x - 70, y: middle.y - 14, width: 140, height: 28)
+            nextBounds[edge.id] = curve.0.bounds.insetBy(dx: -12, dy: -12).union(label)
+        }
+        displayCurves = nextCurves; displayCurveBounds = nextBounds
     }
 }

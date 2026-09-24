@@ -1,4 +1,4 @@
-# Brand Radar · iPhone 画布
+# Brandar · iPhone 画布
 
 原生 SwiftUI iPhone / iPad 应用，核心是“实时逻辑成图”：把口述逐步整理成可编辑的节点、分组和连线，素材保存在相关节点里。工程不依赖第三方 Swift 包，最低 iOS 17；使用 Xcode 26 的目录同步组，新增 Swift 文件可直接放入 `BrandRadar/`。
 
@@ -16,7 +16,7 @@
 
 接入要求是 **OpenAI 兼容 Chat Completions + 函数工具调用**，不是任意 Chatbot 分享链接或 Responses API。Key 按端点隔离；更换服务地址需为新端点配置 Key，不会把旧 Key 自动发给新服务。App 不内置真实 Key。
 
-直连根据当前 Brief、画布与已有材料创作，没有外部搜索工具。需要现有 Brand Radar 的公开资料调查时选择“Mac 中间层”，其模型 Key 留在 Mac。实操失败会解释错误并保留 Brief，不返回演示内容。
+直连根据当前 Brief、画布与已有材料创作，没有外部搜索工具。需要现有 Brandar 网页端的公开资料调查时选择“Mac 中间层”，其模型 Key 留在 Mac。实操失败会解释错误并保留 Brief，不返回演示内容。
 
 ## 从手机开始
 

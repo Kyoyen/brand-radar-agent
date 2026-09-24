@@ -87,6 +87,8 @@ final class RadarCanvasView: UIView, UIGestureRecognizerDelegate {
     private var appearanceTimes: [String: TimeInterval] = [:]
     private var animationTimer: Timer?
     private var visibleEdgeCount = 0
+    private var gridGap: CGFloat = 0
+    private var gridPattern: UIColor?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -153,6 +155,7 @@ final class RadarCanvasView: UIView, UIGestureRecognizerDelegate {
         } else { dragID = nil; dragGroupID = nil; groupOrigins = [:] }
         if let current = self.board { geometry.update(current) }
         if changed { scale = board.zoom; translation = CGPoint(x: board.offsetX, y: board.offsetY) }
+        geometry.setPresentationScale(scale)
         if fitRequest != fitVersion {
             fitVersion = fitRequest
             if bounds.width > 0 && !interacting { fit() } else { needsFit = true }
@@ -171,10 +174,10 @@ final class RadarCanvasView: UIView, UIGestureRecognizerDelegate {
     private func world(_ point: CGPoint) -> CGPoint {
         CGPoint(x: (point.x - translation.x) / scale, y: (point.y - translation.y) / scale)
     }
-    private func cardRect(_ card: RadarCard) -> CGRect { geometry.rects[card.id] ?? .zero }
-    private func groupRect(_ group: RadarGroup) -> CGRect? { geometry.rects[group.id] }
+    private func cardRect(_ card: RadarCard) -> CGRect { geometry.displayRects[card.id] ?? .zero }
+    private func groupRect(_ group: RadarGroup) -> CGRect? { geometry.displayRects[group.id] }
     private var hiddenIDs: Set<String> { geometry.hiddenIDs }
-    private func objectRect(_ id: String) -> CGRect? { geometry.rects[id] }
+    private func objectRect(_ id: String) -> CGRect? { geometry.displayRects[id] }
     private func hitGroup(_ point: CGPoint) -> RadarGroup? {
         let p = world(point)
         return board?.groups?.reversed().first {
@@ -184,10 +187,16 @@ final class RadarCanvasView: UIView, UIGestureRecognizerDelegate {
     }
     private func hit(_ point: CGPoint) -> RadarCard? {
         let p = world(point)
-        return board?.visibleCards.reversed().first { !hiddenIDs.contains($0.id) && cardRect($0).contains(p) }
+        return board?.visibleCards.reversed().first {
+            guard !hiddenIDs.contains($0.id) else { return false }
+            let rect = cardRect($0)
+            let dx = max(0, (CanvasStyle.minimumHit / scale - rect.width) / 2)
+            let dy = max(0, (CanvasStyle.minimumHit / scale - rect.height) / 2)
+            return rect.insetBy(dx: -dx, dy: -dy).contains(p)
+        }
     }
     private func hitObject(_ point: CGPoint) -> String? { hit(point)?.id ?? hitGroup(point)?.id }
-    private func edgeGeometry(_ edge: RadarEdge) -> (UIBezierPath, CGPoint, CGPoint, CGPoint)? { geometry.curves[edge.id] }
+    private func edgeGeometry(_ edge: RadarEdge) -> (UIBezierPath, CGPoint, CGPoint, CGPoint)? { geometry.displayCurves[edge.id] }
     private func hitEdge(_ point: CGPoint) -> RadarEdge? {
         board?.edges.reversed().first { edge in
             guard let curve = edgeGeometry(edge) else { return false }
@@ -208,7 +217,8 @@ final class RadarCanvasView: UIView, UIGestureRecognizerDelegate {
     func fit() {
         guard !interacting else { needsFit = true; return }
         guard let rect = geometry.contentBounds else {
-            scale = 0.8; translation = CGPoint(x: 24, y: 180); setNeedsDisplay()
+            scale = 0.8; geometry.setPresentationScale(scale)
+            translation = CGPoint(x: 24, y: 180); setNeedsDisplay()
             DispatchQueue.main.async { [weak self] in self?.saveViewport() }
             return
         }
@@ -218,6 +228,7 @@ final class RadarCanvasView: UIView, UIGestureRecognizerDelegate {
         let space = CanvasGeometry.fittingArea(in: bounds, safeArea: safeAreaInsets, bottomInset: bottomInset)
         let rect = rect.insetBy(dx: -16, dy: -16)
         scale = max(0.0001, min(1, min(space.width / rect.width, space.height / rect.height)))
+        geometry.setPresentationScale(scale)
         translation = CGPoint(x: space.midX - rect.midX * scale, y: space.midY - rect.midY * scale)
         setNeedsDisplay()
         // Never publish SwiftUI state from updateUIView's rendering pass.
@@ -248,7 +259,7 @@ final class RadarCanvasView: UIView, UIGestureRecognizerDelegate {
     @objc private func open(_ gesture: UITapGestureRecognizer) {
         guard !multiSelect, let id = doubleTapObjectID, id == hitObject(gesture.location(in: self)) || id == hitEdge(gesture.location(in: self))?.id else { return }
         if let card = hit(gesture.location(in: self)) { selectCard(card.id); onOpen?(card.id) }
-        else if let group = hitGroup(gesture.location(in: self)), let rect = groupRect(group) { fit(rect) }
+        else if let group = hitGroup(gesture.location(in: self)), let rect = geometry.rects[group.id] { fit(rect) }
         else if let edge = hitEdge(gesture.location(in: self)) { editEdge(edge) }
     }
     private func selectCard(_ id: String) { selection = id; selectedIDs = [id]; onSelection?(id); updateToolbar() }
@@ -267,7 +278,7 @@ final class RadarCanvasView: UIView, UIGestureRecognizerDelegate {
             gestureStart = point
             panOrigin = translation; groupOrigins = [:]
             if let id = handleHit(point, portMode: true) { connectionSource = id; connectionPoint = world(location) }
-            else if let id = handleHit(point, portMode: false), let rect = objectRect(id) { resizingID = id; resizeOrigin = rect.size }
+            else if let id = handleHit(point, portMode: false), let rect = geometry.rects[id] { resizingID = id; resizeOrigin = rect.size }
             else if multiSelect, hitObject(point) == nil { selectionStart = world(point); selectionBox = CGRect(origin: world(point), size: .zero) }
             else if let id = hitObject(point), let board {
                 if !selectedIDs.contains(id) { selectedIDs = [id] }
@@ -332,6 +343,7 @@ final class RadarCanvasView: UIView, UIGestureRecognizerDelegate {
         case .changed:
             scale = max(0.0001, min(2.5, pinchOrigin * gesture.scale))
             translation = CGPoint(x: point.x - pinchWorld.x * scale, y: point.y - pinchWorld.y * scale)
+            geometry.setPresentationScale(scale)
             setNeedsDisplay()
         case .ended, .cancelled:
             saveViewport(); interacting = false
@@ -355,19 +367,26 @@ final class RadarCanvasView: UIView, UIGestureRecognizerDelegate {
 
     override func draw(_ rect: CGRect) {
         guard let context = UIGraphicsGetCurrentContext() else { return }
-        let gap = max(14, 28 * scale)
-        context.setFillColor(UIColor.black.withAlphaComponent(0.12).cgColor)
-        let startX = translation.x.truncatingRemainder(dividingBy: gap)
-        let startY = translation.y.truncatingRemainder(dividingBy: gap)
-        for x in stride(from: startX, to: bounds.width, by: gap) {
-            for y in stride(from: startY, to: bounds.height, by: gap) { context.fillEllipse(in: CGRect(x: x, y: y, width: 1.5, height: 1.5)) }
+        let gap = max(14, (28 * scale).rounded())
+        if gridPattern == nil || gridGap != gap {
+            let format = UIGraphicsImageRendererFormat(); format.scale = UIScreen.main.scale
+            let tile = UIGraphicsImageRenderer(size: CGSize(width: gap, height: gap), format: format).image { tile in
+                UIColor.black.withAlphaComponent(0.12).setFill()
+                tile.cgContext.fillEllipse(in: CGRect(x: 0, y: 0, width: 1.5, height: 1.5))
+            }
+            gridPattern = UIColor(patternImage: tile); gridGap = gap
         }
+        context.saveGState()
+        context.setPatternPhase(CGSize(width: translation.x.truncatingRemainder(dividingBy: gap),
+                                       height: translation.y.truncatingRemainder(dividingBy: gap)))
+        gridPattern?.setFill(); context.fill(bounds)
+        context.restoreGState()
         context.saveGState()
         context.translateBy(x: translation.x, y: translation.y); context.scaleBy(x: scale, y: scale)
         guard board != nil else { context.restoreGState(); return }
         let visibleWorld = CGRect(x: -translation.x / scale, y: -translation.y / scale, width: bounds.width / scale, height: bounds.height / scale).insetBy(dx: -40, dy: -40)
-        let groups = geometry.orderedGroups.filter { geometry.rects[$0.id]?.intersects(visibleWorld) == true }
-        let edges = geometry.edges.filter { geometry.curveBounds[$0.id]?.intersects(visibleWorld) == true }
+        let groups = geometry.orderedGroups.filter { geometry.displayRects[$0.id]?.intersects(visibleWorld) == true }
+        let edges = geometry.edges.filter { geometry.displayCurveBounds[$0.id]?.intersects(visibleWorld) == true }
         let cards = geometry.cards.filter { !hiddenIDs.contains($0.id) && cardRect($0).intersects(visibleWorld) }
         #if DEBUG
         lastDrawCounts = ["nodes": cards.count, "groups": groups.count, "edges": edges.count]
@@ -387,11 +406,11 @@ final class RadarCanvasView: UIView, UIGestureRecognizerDelegate {
         guard let rect = groupRect(group) else { return }
         let color = RadarCard(title: "", body: "", color: group.color).uiColor
         let path = UIBezierPath(roundedRect: rect, cornerRadius: 28)
-        color.withAlphaComponent(0.32).setFill(); path.fill()
+        if scale >= 0.44 { color.withAlphaComponent(0.32).setFill(); path.fill() }
         CanvasStyle.accent.withAlphaComponent(0.38).setStroke()
         path.lineWidth = selectedIDs.contains(group.id) ? 3 : 1.5; path.stroke()
-        guard 18 * scale >= 10 && rect.width * scale >= 85 else { return }
-        text(group.title, CGRect(x: rect.minX + 23, y: rect.minY + 17, width: rect.width - 70, height: 25), .systemFont(ofSize: 18, weight: .semibold), .darkGray)
+        guard 20 * scale >= 9 && rect.width * scale >= 85 else { return }
+        text(group.title, CGRect(x: rect.minX + 23, y: rect.minY + 15, width: rect.width - 70, height: 29), .systemFont(ofSize: 20, weight: .semibold), .darkGray)
         text(group.collapsed == true ? "+" : "−", CGRect(x: rect.maxX - 35, y: rect.minY + 15, width: 22, height: 26), .systemFont(ofSize: 22), .gray)
     }
     private func drawEdge(_ edge: RadarEdge, context: CGContext) {
@@ -426,24 +445,43 @@ final class RadarCanvasView: UIView, UIGestureRecognizerDelegate {
     private func drawCard(_ card: RadarCard, context: CGContext) {
         context.saveGState(); context.setAlpha(appearance(card.id)); defer { context.restoreGState() }
         let rect = cardRect(card)
-        let path = UIBezierPath(roundedRect: rect, cornerRadius: 19)
+        let path = UIBezierPath(roundedRect: rect, cornerRadius: min(19, rect.height * 0.22))
         context.saveGState()
-        if rect.width * scale >= 70 { context.setShadow(offset: CGSize(width: 0, height: 5), blur: 16, color: UIColor.black.withAlphaComponent(0.06).cgColor) }
+        if !interacting && rect.width * scale >= 100 { context.setShadow(offset: CGSize(width: 0, height: 5), blur: 12, color: UIColor.black.withAlphaComponent(0.05).cgColor) }
         let surface = card.color == "cream" ? CanvasStyle.paper : card.uiColor
         surface.setFill(); path.fill(); context.restoreGState()
         (selectedIDs.contains(card.id) ? CanvasStyle.accent : CanvasStyle.border).setStroke()
         path.lineWidth = selectedIDs.contains(card.id) ? max(2 / scale, 2) : 1; path.stroke()
+        let typeInk = CanvasStyle.typeInk(card.kind)
         let detail = CanvasStyle.detail(rect: rect, scale: scale)
-        guard detail != .shape else { return }
+        if detail == .shape {
+            typeInk.setFill()
+            UIBezierPath(roundedRect: CGRect(x: rect.minX + 10, y: rect.minY + 10, width: 5, height: max(6, rect.height - 20)), cornerRadius: 2.5).fill()
+            typeInk.withAlphaComponent(0.38).setFill()
+            UIBezierPath(roundedRect: CGRect(x: rect.minX + 25, y: rect.midY - 5, width: max(10, rect.width * 0.58), height: 10), cornerRadius: 5).fill()
+            return
+        }
         let secondary = CanvasStyle.secondary
-        text(card.title, CGRect(x: rect.minX + 22, y: rect.minY + 26, width: rect.width - 44, height: 60), .systemFont(ofSize: 23, weight: .semibold), CanvasStyle.ink)
-        guard detail == .preview else { return }
+        let inset: CGFloat = rect.width < 220 ? 16 : 22
+        if detail == .title && scale < 0.48 {
+            text(card.title, CGRect(x: rect.minX + inset, y: rect.midY - 31, width: rect.width - inset * 2, height: 62), .systemFont(ofSize: 23, weight: .semibold), CanvasStyle.ink)
+            return
+        }
+        text(card.label.uppercased(), CGRect(x: rect.minX + inset, y: rect.minY + 16, width: rect.width - inset * 2, height: 20), .systemFont(ofSize: detail == .preview ? 12 : 17, weight: .bold), typeInk)
+        text(card.title, CGRect(x: rect.minX + inset, y: rect.minY + 40, width: rect.width - inset * 2, height: 56), .systemFont(ofSize: 23, weight: .semibold), CanvasStyle.ink)
+        if detail == .title {
+            let summaryHeight = rect.height - 111
+            if summaryHeight > 22 {
+                text(geometry.preview(for: card.id), CGRect(x: rect.minX + inset, y: rect.minY + 103, width: rect.width - inset * 2, height: summaryHeight), .systemFont(ofSize: 18), secondary)
+            }
+            return
+        }
         if let preview = geometry.richPreview(for: card.id), preview.hasStructuredContent {
-            CanvasRichPreview.draw(preview, in: CGRect(x: rect.minX + 22, y: rect.minY + 96, width: rect.width - 44, height: max(28, rect.height - 139)), ink: secondary)
+            CanvasRichPreview.draw(preview, in: CGRect(x: rect.minX + inset, y: rect.minY + 105, width: rect.width - inset * 2, height: max(28, rect.height - 148)), ink: secondary)
         } else {
-        text(geometry.preview(for: card.id), CGRect(x: rect.minX + 22, y: rect.minY + 96, width: rect.width - 44, height: max(28, rect.height - 139)), .systemFont(ofSize: 14), secondary)
+        text(geometry.preview(for: card.id), CGRect(x: rect.minX + inset, y: rect.minY + 105, width: rect.width - inset * 2, height: max(28, rect.height - 148)), .systemFont(ofSize: 14), secondary)
         if let attachment = card.effectiveBlocks.first(where: { $0.kind == "image" || $0.kind == "drawing" })?.attachment, let image = CanvasAssets.shared.thumbnail(for: attachment) {
-            let thumbnail = CGRect(x: rect.minX + 22, y: rect.minY + 96, width: rect.width - 44, height: max(40, rect.height - 139))
+            let thumbnail = CGRect(x: rect.minX + inset, y: rect.minY + 105, width: rect.width - inset * 2, height: max(40, rect.height - 148))
             context.saveGState(); UIBezierPath(roundedRect: thumbnail, cornerRadius: 8).addClip()
             let ratio = min(thumbnail.width / image.size.width, thumbnail.height / image.size.height)
             let size = CGSize(width: image.size.width * ratio, height: image.size.height * ratio)
@@ -452,8 +490,8 @@ final class RadarCanvasView: UIView, UIGestureRecognizerDelegate {
         }
         }
         context.setStrokeColor(UIColor.black.withAlphaComponent(0.08).cgColor); context.setLineWidth(1)
-        context.move(to: CGPoint(x: rect.minX + 22, y: rect.maxY - 31)); context.addLine(to: CGPoint(x: rect.maxX - 22, y: rect.maxY - 31)); context.strokePath()
-        text(card.status == "kept" ? "✓ 已采用" : "↗", CGRect(x: rect.minX + 22, y: rect.maxY - 24, width: rect.width - 44, height: 15), .systemFont(ofSize: 10, weight: .medium), secondary)
+        context.move(to: CGPoint(x: rect.minX + inset, y: rect.maxY - 31)); context.addLine(to: CGPoint(x: rect.maxX - inset, y: rect.maxY - 31)); context.strokePath()
+        text(card.status == "kept" ? "✓ 已采用" : "↗", CGRect(x: rect.minX + inset, y: rect.maxY - 24, width: rect.width - inset * 2, height: 15), .systemFont(ofSize: 10, weight: .medium), secondary)
     }
     private func appearance(_ id: String) -> CGFloat {
         guard let time = appearanceTimes[id] else { return 1 }
@@ -482,7 +520,7 @@ final class RadarCanvasView: UIView, UIGestureRecognizerDelegate {
         updateToolbar(); setNeedsDisplay()
     }
     @objc private func locateNew() {
-        guard let rect = newIDs.compactMap(objectRect).reduce(nil as CGRect?, { $0?.union($1) ?? $1 }) else { return }
+        guard let rect = newIDs.compactMap({ geometry.rects[$0] }).reduce(nil as CGRect?, { $0?.union($1) ?? $1 }) else { return }
         fit(rect); newIDs = []; locateButton.isHidden = true
     }
     private func updateToolbar() {
@@ -619,12 +657,15 @@ final class RadarCanvasView: UIView, UIGestureRecognizerDelegate {
             element.accessibilityHint = "聚焦分组"
             element.accessibilityTraits = .button
             element.accessibilityFrameInContainerSpace = screen
-            element.activate = { [weak self] in self?.fit(rect) }
+            element.activate = { [weak self] in
+                guard let base = self?.geometry.rects[group.id] else { return }
+                self?.fit(base)
+            }
             accessibilityElements?.append(element)
         }
         for edge in board?.edges ?? [] {
             guard let curve = edgeGeometry(edge) else { continue }
-            let rect = geometry.curveBounds[edge.id] ?? curve.0.bounds.insetBy(dx: -12, dy: -12)
+            let rect = geometry.displayCurveBounds[edge.id] ?? curve.0.bounds.insetBy(dx: -12, dy: -12)
             let screen = CGRect(x: rect.minX * scale + translation.x, y: rect.minY * scale + translation.y, width: rect.width * scale, height: rect.height * scale)
             guard screen.intersects(bounds) else { continue }
             let element = CanvasCardAccessibility(accessibilityContainer: self)

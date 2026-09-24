@@ -75,6 +75,33 @@ import Foundation
         store.persist()
         let reopened = BoardStore(testDirectory: directory, preferences: preferences)
         try expect(reopened.boards.first(where: { $0.id == board.id })?.composerDraft == "还没发送的原话\n补充口述" && reopened.boards.first(where: { $0.id == other.id })?.composerDraft == "另一张草稿", "B04 separate board drafts survive real file reload")
+        let demo = DemoCanvas.seed()
+        var untouched = demo
+        _ = DemoCanvas.apply(prompt: "帮我整理宠物领养计划", selectedID: nil, to: &untouched)
+        try expect(untouched.cards == demo.cards && untouched.groups == demo.groups && untouched.edges == demo.edges,
+                   "example script itself rejects arbitrary text without changing content")
+        store.boards.append(demo); store.mode = .demo; store.selectedID = demo.id; store.selectedCardID = nil
+        store.send("帮我整理宠物领养计划")
+        try expect(store.current.cards == demo.cards && store.current.messages.isEmpty && store.current.composerDraft == "帮我整理宠物领养计划" && store.busyBoardID == nil,
+                   "free text on the example keeps its draft without running the fixed coffee script")
+        store.selectedCardID = "demo_idea"
+        try expect(store.copyCurrentDemoToMyBoard(draft: "新增两张卡片"), "example can be copied into a personal board")
+        let copied = store.current
+        try expect(copied.id != demo.id && copied.mode == .practice && copied.cards == demo.cards && copied.groups == demo.groups && copied.edges == demo.edges && copied.composerDraft == "新增两张卡片",
+                   "personal copy retains canvas content, structure, positions and the new brief")
+        try expect(store.selectedCardID == "demo_idea", "copy keeps the selected target for a follow-up brief")
+        try expect(copied.messages.isEmpty && copied.demoStage == nil && copied.remoteID == nil && copied.activeEditSession == nil && store.boards.first(where: { $0.id == demo.id })?.mode == .demo,
+                   "personal copy clears sample conversation and execution state without changing the example")
+        let blank = BoardTemplate.blank.make()
+        var added = blank; added.cards = [RadarCard(id: "corrected-away", title: "改口前", body: "")]
+        let corrected = CanvasEditSession(title: "边说边画 Beta", changes: CanvasHistory.diff(blank, added) + CanvasHistory.diff(added, blank), complete: true)
+        let correctionSummary = CanvasChangeSummary(boardID: blank.id, session: corrected, partial: false)
+        try expect(!correctionSummary.hasChanges && correctionSummary.text == "本轮未改动画布",
+                   "spoken correction that removes its earlier card reports no net canvas change")
+        var archivedNew = added; archivedNew.cards[0].status = "archived"
+        let archivedCorrection = CanvasEditSession(title: "边说边画 Beta", changes: CanvasHistory.diff(blank, added) + CanvasHistory.diff(added, archivedNew), complete: true)
+        try expect(!CanvasChangeSummary(boardID: blank.id, session: archivedCorrection, partial: false).hasChanges,
+                   "a new card archived in the same utterance does not claim a visible addition")
         return passed
     }
 }
