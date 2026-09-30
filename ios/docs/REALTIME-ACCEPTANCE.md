@@ -1,5 +1,25 @@
 # 实时逻辑成图：本轮验收
 
+## 2026-09-30：画布 Agent 与界面回归
+
+本轮 **1.0 (6)** 已从 GitHub main 提交 [`aab8454`](https://github.com/Kyoyen/brand-radar-agent/commit/aab84548538214392af4459d93bed85a41c7c801) 归档并上传；App Store Connect 构建 `d00cf40a-64ae-411d-9125-952a93b52b05` 读回 `VALID`、内部 TestFlight `IN_BETA_TESTING`，应用本体 2,276,814 字节。见 [GitHub Release](https://github.com/Kyoyen/brand-radar-agent/releases/tag/ios-1.0-build-6)。流式 Agent 以 Store 实际读回继续生成，人工标题、内容块、清单项及新建对象在同一轮多批中受保护；卡片段落删除、清单整表删除与条件撤销已纳入自检。“N 张画布”先澄清是独立画布还是当前画布里的卡片，直连 Agent 仍不创建多个独立画布。详细修复、合成模型产物及边界见本地忽略目录 `outputs/qa-20260930/agent/REPORT.md`。
+
+| 层面 | 当前读回 |
+|---|---|
+| 隔离 App 自检 | 181/181 通过，运行于模拟器。 |
+| 协议与后端 | 直连 70/70、流式 71/71、Studio 后端 26/26 通过。流式检查含过大批次拒绝、限次纠正、取消和已保存批次保留；协议模拟与 Foundation 画布替身不等于手机交互。 |
+| 真实模型协议 | 独立 harness 使用 7 次非流及 2 次流式 DeepSeek HTTP；非流的六类意图成功，混合富内容流式首试在回调前失败且原因未定位，复试 1 HTTP / 1 批完成删段、删清单项、补句和保留附件引用。合成产物见上述本地报告。 |
+| 真实 App 路径 | 独立 2 项真实 API opt-in UI 各 1/1 通过。视觉输入从原素材卡生成 4 个标签节点和 2 条方向关系，`PLUM`、`ORBIT`、`7`、`9` 各出现一次，原件及 4 个来源关联保留；首试过大批次失败，经有界纠正后最终 App 读回通过。合成语音分段首批 1.449 秒、进入完成待确认 2.457 秒，重开仍保留待确认结果。这是指定隔离模拟器的测量，不代表真人语音时延。 |
+| 本地 UI 回归 | 统一初跑 40 项：35 通过、2 失败、3 显式 opt-in 跳过；修正 ChatLibrary 异步断言及改用正常签名模拟器构建后，两处失败在 targeted 复验中 2/2 通过，累计 37 个不同本地 UI 用例有通过证据。初跑见本地 `outputs/qa-20260930/integrated-ui.xcresult`，复验见 `outputs/qa-20260930/voice/targeted-signed.xcresult`；这不是一次全套 37/37 重跑。两项真实 API UI 单独执行并读回。 |
+
+Keychain 用例的初次失败发生在无正常 App 身份签名的模拟器构建上，页面提示保存失败；正常签名重建后，同一用例的保存、重开读取和删除通过。没有读取当时 `SecItemAdd` 的 OSStatus，不能把初次失败确定归因为某个特定安全错误码；产品继续使用 Keychain。
+
+最终视觉合成板的本地 JSON 为 5,828 字节，附件 48,401 字节，合计 54,229 字节；这是单个隔离样本的存储量，不是安装包大小或容量上限。严格读回见本地 `outputs/qa-20260930/voice/visual-readback-bounded-final.json` 和 `voice-readback-signed.json`。
+
+本次未连接真机，因此新构建的真机安装、真人超过一分钟口述、锁屏/来电中断与真机帧率均未验收。手机直连没有外部检索；Hermes 未接入本轮。下面的旧日期段落保留当时的历史结果，其中 9 月 13 日“画布解释为内容卡”的旧行为已由本轮澄清逻辑取代。
+
+经逐张审阅的 iPhone 17e 模拟器画布与阅读截图见[移动端介绍](../../docs/mobile/README.md)；使用隔离示例和合成案例，不代表真机部署或真人口述。
+
 ## 2026-09-24：画板首轮优化
 
 整合后的 Debug 模拟器构建通过，隔离画布自检 154 项通过。5 项关键 UI 回归全部通过，分别覆盖远景选中与拖动、Brief 和 Beta 的独立入口、示例转个人画布、Beta 保留/放弃及重开、清单和表格保存重开。Xcode 测试结果位于本机 `outputs/ios-derived-final/Logs/Test/Test-BrandRadar-2026.09.24_14-24-06-+0800.xcresult`，不随 Git 上传。

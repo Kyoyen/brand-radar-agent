@@ -1,5 +1,7 @@
 # Brandar · iPhone 画布
 
+2026-09-30 的 **1.0 (6)** 已从 GitHub main 提交 [`aab8454`](https://github.com/Kyoyen/brand-radar-agent/commit/aab84548538214392af4459d93bed85a41c7c801) 归档，App Store Connect 读回内部 TestFlight 状态 `IN_BETA_TESTING`；见 [GitHub Release](https://github.com/Kyoyen/brand-radar-agent/releases/tag/ios-1.0-build-6)。当前画布 Agent 会按实际接受结果继续生成，在流式多批之间保护人工修改；过大的工具批次会被拒绝并限次要求模型拆小，可明确删除卡片段落或清单项，遇到“几张画布”会先澄清独立画布与当前画布的卡片数量。模拟器自检 181/181、直连协议 70/70、流式协议 71/71 与后端检查 26/26 通过；37 个不同本地 UI 用例有通过证据，另有 2 项独立真实 API UI 通过。当前构建的真机安装、真人长段口述与锁屏中断尚未验收，见[本轮验收](docs/REALTIME-ACCEPTANCE.md)。
+
 原生 SwiftUI iPhone / iPad 应用，核心是“实时逻辑成图”：把口述逐步整理成可编辑的节点、分组和连线，素材保存在相关节点里。工程不依赖第三方 Swift 包，最低 iOS 17；使用 Xcode 26 的目录同步组，新增 Swift 文件可直接放入 `BrandRadar/`。
 
 当前个人 iPhone 已预配置 DeepSeek，直接在底部输入或按住“说出你的想法”。没有登录。AI 会创建卡片、分组和连线，并继续修改选中的原卡。主界面不再放演示/实操切换；预设作品收进设置中的“示例画布”，与“我的画布”分别保存。
