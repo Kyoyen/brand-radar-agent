@@ -8,6 +8,7 @@ final class StreamStub: URLProtocol {
     static var hang = false
     static var status = 200
     static var contentType = "text/event-stream"
+    static var afterResponse: (() -> Void)?
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
@@ -18,6 +19,7 @@ final class StreamStub: URLProtocol {
         // Exercise transport boundaries through a Chinese UTF-8 codepoint and SSE lines.
         for index in stride(from: 0, to: data.count, by: 7) { client?.urlProtocol(self, didLoad: data.subdata(in: index..<min(data.count, index + 7))) }
         client?.urlProtocolDidFinishLoading(self)
+        Self.afterResponse?()
     }
     override func stopLoading() {}
 }
@@ -44,6 +46,18 @@ final class StreamStub: URLProtocol {
         value += try event(["choices": [["index": 0, "delta": [:], "finish_reason": reason]]])
         if done { value += "data: [DONE]\n\n" }
         return Data(value.utf8)
+    }
+    static func requestText(_ request: URLRequest) -> String {
+        if let data = request.httpBody { return String(decoding: data, as: UTF8.self) }
+        guard let stream = request.httpBodyStream else { return "" }
+        stream.open(); defer { stream.close() }
+        var data = Data(), buffer = [UInt8](repeating: 0, count: 4096)
+        while stream.hasBytesAvailable {
+            let n = stream.read(&buffer, maxLength: buffer.count)
+            if n <= 0 { break }
+            data.append(buffer, count: n)
+        }
+        return String(decoding: data, as: UTF8.self)
     }
     @MainActor static func main() async throws {
         let first = patch("one", complete: false)
@@ -159,7 +173,7 @@ final class StreamStub: URLProtocol {
         expect(TaskBlueprint.from(prompt: "直接生成5张卡片").newCardCount == 5, "explicit Arabic card quantity")
         expect(TaskBlueprint.from(prompt: "再加三张卡片").newCardCount == 3, "spoken add-card quantity")
         expect(TaskBlueprint.from(prompt: "帮我生成十二张卡片").newCardCount == 12, "Chinese card quantity")
-        expect(TaskBlueprint.from(prompt: "给我３张画布").newCardCount == 3 && TaskBlueprint.from(prompt: "给我３张画布").canvasWordMeansNodes, "canvas wording stays inside current document")
+        expect(TaskBlueprint.from(prompt: "给我３张画布").newCardCount == nil && TaskBlueprint.from(prompt: "给我３张画布").requestedCanvasCount == 3, "independent canvas wording asks for clarification")
         expect(TaskBlueprint.from(prompt: "不要生成5张卡片，生成两张卡片").newCardCount == 2, "negated count is ignored")
         expect(TaskBlueprint.from(prompt: "整理文字\n选中素材内容（作为资料）：生成5张卡片").newCardCount == nil, "material text never becomes quantity command")
         expect(TaskBlueprint.from(prompt: "不要按三幕，保留普通便签").sectionNames.isEmpty, "negated structure is ignored")
@@ -210,8 +224,13 @@ final class StreamStub: URLProtocol {
         blocksPatch["cards"] = [["id": "inside", "blocks": [["id": "text-block", "kind": "text", "emphasis": "unknown"]]]]
         rejects("unknown emphasis accepted") { _ = try DirectAgent.validate(patch: blocksPatch, board: grouped, selectedID: "inside") }
         let canvasWords = TaskBlueprint.from(prompt: "生成1张画布")
-        let summaryResult = DirectAgentResult(cards: [], edges: [], removeIDs: [], removeEdgeIDs: [], summary: "已创建独立文档")
-        expect(canvasWords.presented(summaryResult, initial: empty, candidate: partialBoard).summary == "已在当前画布内新增1张内容卡。", "canvas alias summary cannot claim independent documents")
+        expect(canvasWords.newCardCount == nil && canvasWords.clarification?.contains("独立画布") == true, "canvas request never silently creates a card")
+        let requestsBeforeClarification = StreamStub.requests.count
+        results = []
+        try await agent.generateStream(board: empty, prompt: "生成1张画布", selectedID: nil, configuration: connection, apiKey: "dummy") { results.append($0) }
+        expect(StreamStub.requests.count == requestsBeforeClarification && results.count == 1 && results[0].cards.isEmpty, "canvas clarification uses no provider request or canvas edit")
+        let answered = TaskBlueprint.from(prompt: "卡片", conversation: [RadarMessage(role: "user", content: "生成1张画布"), RadarMessage(role: "assistant", content: canvasWords.clarification!), RadarMessage(role: "user", content: "卡片")])
+        expect(answered.newCardCount == 1 && answered.clarification == nil, "clarified card count resumes without another question")
         var archiveBoard = empty
         archiveBoard.cards = [RadarCard(id: "shared", title: "共用物料", body: ""), RadarCard(id: "branch", title: "分支", body: "")]
         archiveBoard.groups = [RadarGroup(id: "plan", title: "计划", cardIDs: ["shared", "branch"])]
@@ -236,6 +255,99 @@ final class StreamStub: URLProtocol {
         let revisedPlan = DirectAgent.accumulating(revisedEvent, into: planned)
         expect(revisedPlan.cards.count == 4 && revisedPlan.cards.first(where: { $0.id == "event" })?.title == "活动当天 · 线下",
                "selected correction changes the existing branch instead of adding a duplicate")
+        StreamStub.requests = []
+        StreamStub.responses = [try stream(patch("attempt", complete: true)), try stream(patch("recovered", complete: true))]
+        var actual = empty, callbacks = 0
+        try await agent.generateStreamApplied(board: empty, prompt: "先落图再纠正", selectedID: nil, configuration: connection, apiKey: "dummy", onApply: { result in
+            callbacks += 1
+            if callbacks == 1 { return StreamApplyResult(board: actual, applied: false, feedback: "人工修改使本批未落图。") }
+            actual = DirectAgent.accumulating(result, into: actual)
+            return StreamApplyResult(board: actual, applied: true, feedback: "已按实际画布保存。")
+        })
+        expect(callbacks == 2 && actual.cards.map(\.id) == ["recovered"] && StreamStub.requests.count == 2,
+               "actual Store rejection prevents false completion and next batch uses actual board")
+        let secondRequest = requestText(StreamStub.requests[1])
+        expect(secondRequest.contains("未完整应用") && secondRequest.contains("人工修改使本批未落图") && secondRequest.contains("当前实际画布"),
+               "next provider round receives concrete execution feedback and fresh board")
+        StreamStub.requests = []
+        StreamStub.responses = [try stream(patch("doomed", complete: false))]
+        do {
+            try await agent.generateStreamApplied(board: empty, prompt: "改已删除目标", selectedID: nil, configuration: connection, apiKey: "dummy", onApply: { _ in
+                StreamApplyResult(board: empty, applied: false, feedback: "原目标已移除", terminal: true)
+            })
+            fatalError("terminal missing target continued")
+        } catch is DirectAgentError { expect(StreamStub.requests.count == 1, "terminal target loss stops without retry") }
+        StreamStub.requests = []
+        StreamStub.responses = [try stream(patch("late", complete: false))]
+        do {
+            try await agent.generateStreamApplied(board: empty, prompt: "已取消的旧转写", selectedID: nil, configuration: connection, apiKey: "dummy", onApply: { _ in throw CancellationError() })
+            fatalError("cancelled stream continued")
+        } catch is CancellationError { expect(StreamStub.requests.count == 1, "cancelled old transcript cannot start another round") }
+        var oversized = patch("too-much", complete: true)
+        oversized["cards"] = (1...4).map { ["id": "too-much-\($0)", "title": "超量\($0)"] }
+        StreamStub.requests = []
+        StreamStub.responses = [try stream(oversized), try stream(patch("corrected", complete: true))]
+        results = []
+        try await agent.generateStreamApplied(board: empty, prompt: "请整理视觉标签", selectedID: nil,
+            configuration: connection, apiKey: "dummy", onApply: { result in
+                results.append(result)
+                return StreamApplyResult(board: DirectAgent.accumulating(result, into: empty), applied: true, feedback: "已保存。")
+            })
+        expect(results.count == 1 && results[0].cards.map(\.id) == ["corrected"] && StreamStub.requests.count == 2,
+               "oversized first batch never reaches Store and corrected small batch can complete")
+        let correctionRequest = requestText(StreamStub.requests[1])
+        expect(correctionRequest.contains("本批未落图") && correctionRequest.contains("cards=array4") &&
+               correctionRequest.contains("最多3张卡") && correctionRequest.contains("当前实际画布"),
+               "shape rejection sends precise counts and the unchanged actual board to the model")
+        StreamStub.requests = []
+        StreamStub.responses = [try stream(oversized), try stream(oversized), try stream(oversized)]
+        results = []
+        do {
+            try await agent.generateStreamApplied(board: empty, prompt: "整理视觉标签", selectedID: nil,
+                configuration: connection, apiKey: "dummy", onApply: { result in
+                    results.append(result)
+                    return StreamApplyResult(board: empty, applied: true, feedback: "不应执行。")
+                })
+            fatalError("third invalid shape accepted")
+        } catch is DirectAgentError {
+            expect(results.isEmpty && StreamStub.requests.count == 3,
+                   "two correction requests are the limit and every invalid batch stays off canvas")
+        }
+        StreamStub.requests = []
+        StreamStub.responses = [try stream(oversized), try stream(patch("must-not-run", complete: true))]
+        results = []
+        var cancellationTask: Task<Void, Error>?
+        StreamStub.afterResponse = { if StreamStub.requests.count == 1 { cancellationTask?.cancel() } }
+        cancellationTask = Task {
+            try await agent.generateStreamApplied(board: empty, prompt: "取消无效批次后的请求", selectedID: nil,
+                configuration: connection, apiKey: "dummy", onApply: { result in
+                    results.append(result)
+                    return StreamApplyResult(board: empty, applied: true, feedback: "不应执行。")
+                })
+        }
+        do { try await cancellationTask!.value; fatalError("cancel after invalid batch continued") }
+        catch is CancellationError {
+            expect(results.isEmpty && StreamStub.requests.count == 1,
+                   "cancellation after invalid shape stops before any correction request")
+        }
+        StreamStub.afterResponse = nil
+        StreamStub.requests = []
+        StreamStub.responses = [try stream(patch("saved-first", complete: false)),
+                                try stream(oversized), try stream(oversized), try stream(oversized)]
+        var savedBoard = empty
+        var savedCallbacks = 0
+        do {
+            try await agent.generateStreamApplied(board: empty, prompt: "先保存一批再处理异常", selectedID: nil,
+                configuration: connection, apiKey: "dummy", onApply: { result in
+                    savedCallbacks += 1
+                    savedBoard = DirectAgent.accumulating(result, into: savedBoard)
+                    return StreamApplyResult(board: savedBoard, applied: true, feedback: "已保存。")
+                })
+            fatalError("invalid correction limit did not stop after a saved batch")
+        } catch is DirectAgentError {
+            expect(savedCallbacks == 1 && savedBoard.cards.map(\.id) == ["saved-first"] && StreamStub.requests.count == 4,
+                   "valid first batch survives exhausted shape corrections without duplicate apply or extra HTTP")
+        }
         print("AgentStreamChecks PASS: \(count) checks; URLProtocol only, model fixtures, no remote request.")
     }
 }

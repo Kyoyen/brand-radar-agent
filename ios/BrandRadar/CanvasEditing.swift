@@ -234,6 +234,12 @@ enum CanvasHistory {
                     if human == original { merged[i] = incomingBlock }
                     else if human.kind == "checklist", incomingBlock.kind == "checklist", original.kind == "checklist" {
                         var value = human
+                        // A missing checklist item is an intentional deletion only when
+                        // that item has not been edited or checked by the person since base.
+                        value.items.removeAll { item in
+                            guard let old = original.items.first(where: { $0.id == item.id }) else { return false }
+                            return !incomingBlock.items.contains(where: { $0.id == item.id }) && item == old
+                        }
                         for item in incomingBlock.items {
                             if let j = value.items.firstIndex(where: { $0.id == item.id }) {
                                 if value.items[j].text == original.items.first(where: { $0.id == item.id })?.text { value.items[j].text = item.text }
@@ -246,6 +252,12 @@ enum CanvasHistory {
                         if let item = human.items.first(where: { $0.id == merged[i].items[j].id }) { merged[i].items[j].isChecked = item.isChecked }
                     }
                 } else if !base.effectiveBlocks.contains(where: { $0.id == incomingBlock.id }) { merged.append(incomingBlock) }
+            }
+            // validateBlocks produced a complete post-removal list. Only remove an
+            // omitted old block if no human edit changed that particular block.
+            merged.removeAll { block in
+                guard let old = base.effectiveBlocks.first(where: { $0.id == block.id }) else { return false }
+                return !blocks.contains(where: { $0.id == block.id }) && block == old
             }
             result.blocks = merged
         } else if result.body != current.body, var blocks = current.blocks,

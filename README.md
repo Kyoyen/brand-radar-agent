@@ -4,13 +4,13 @@
 
 <p align="center">
   <img src="docs/assets/mobile/20260924/canvas-mid.png" width="230" alt="Brandar 无限画布：节点、分组和关系" />
-  <img src="docs/assets/mobile/content.png" width="230" alt="清单和表格混排" />
+  <img src="docs/assets/mobile/20260924/canvas-reader.png" width="230" alt="混合清单与表格卡片的完整阅读页" />
   <img src="docs/assets/mobile/drawing.png" width="230" alt="原生手绘与撤销重做" />
 </p>
-<p align="center"><sub>原生 iPhone App 模拟器实拍 · 示例内容</sub></p>
+<p align="center"><sub>iPhone 17e 模拟器画面；画布为隔离示例，阅读页为混合内容测试案例。</sub></p>
 
 <p align="center">
-  <img src="docs/assets/mobile/20260924/canvas-overview.png" width="230" alt="缩小后以紧凑结构标记保持画布全貌" />
+  <img src="docs/assets/mobile/20260924/canvas-overview.png" width="230" alt="缩小后仍显示组名和卡片短标题的画布全貌" />
   <img src="docs/assets/mobile/20260924/live-review.png" width="230" alt="边说边画 Beta 的画布变化确认" />
 </p>
 <p align="center"><sub>全貌与 Beta 确认均为隔离的模拟器测试画面；不代表真人语音已完成验收。</sub></p>

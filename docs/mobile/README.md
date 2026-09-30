@@ -4,16 +4,16 @@
 
 <p align="center">
   <img src="../assets/mobile/20260924/canvas-mid.png" width="230" alt="原生无限画布：节点、连线与分组" />
-  <img src="../assets/mobile/content.png" width="230" alt="一个节点里混排可勾选清单和可编辑表格" />
+  <img src="../assets/mobile/20260924/canvas-reader.png" width="230" alt="混合清单与表格卡片的完整阅读页" />
   <img src="../assets/mobile/drawing.png" width="230" alt="PencilKit手绘及顶部撤销重做" />
 </p>
-<p align="center"><sub>原生 App 模拟器实拍，展示示例内容。画布、内容编辑和手绘均为可交互界面。</sub></p>
+<p align="center"><sub>画布与阅读页更新于 2026-09-30，取自 iPhone 17e 模拟器的隔离示例和合成案例；手绘图为此前示例界面。</sub></p>
 
 <p align="center">
-  <img src="../assets/mobile/20260924/canvas-overview.png" width="230" alt="缩放到全貌时的紧凑结构标记" />
+  <img src="../assets/mobile/20260924/canvas-overview.png" width="230" alt="缩放到全貌时仍显示组名与卡片短标题" />
   <img src="../assets/mobile/20260924/live-review.png" width="230" alt="边说边画 Beta 的真实变化确认界面" />
 </p>
-<p align="center"><sub>隔离的模拟器测试画面；Beta 确认图使用测试更新，不代表真人口述结果。</sub></p>
+<p align="center"><sub>左图更新于 2026-09-30，取自 iPhone 17e 模拟器合成画布；右图为此前隔离测试的 Beta 确认界面，不代表真人口述结果。</sub></p>
 
 ## 一句话，可以有很多条路
 

@@ -29,6 +29,11 @@ final class CanvasZoomUITests: XCTestCase {
         let card = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'card_' ")).firstMatch
         XCTAssertTrue(card.waitForExistence(timeout: 5))
         let original = card.frame.origin
+        card.tap()
+        let selected = XCTAttachment(screenshot: app.screenshot())
+        selected.name = "Brandar selected card at far zoom"
+        selected.lifetime = .keepAlways
+        add(selected)
         let centre = card.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         centre.press(forDuration: 0.05, thenDragTo: centre.withOffset(CGVector(dx: 30, dy: 20)))
         XCTAssertGreaterThan(card.frame.origin.x, original.x + 10)

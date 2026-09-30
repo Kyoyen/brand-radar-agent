@@ -21,7 +21,7 @@ enum CanvasRichPreview {
             case "checklist": return .checklist(block.items.prefix(4).map { (String($0.text.prefix(160)), $0.isChecked) }, total: block.items.count)
             case "table":
                 let rows = block.rows.prefix(4).map { $0.prefix(3).map { String($0.prefix(100)) } }
-                return .table(rows, totalRows: block.rows.count, totalColumns: block.rows.prefix(4).map(\.count).max() ?? 0)
+                return .table(rows, totalRows: block.rows.count, totalColumns: block.rows.map(\.count).max() ?? 0)
             case "image", "drawing":
                 if let asset = block.attachment { return .media(asset, caption: String(block.text.prefix(100))) }
                 return .attachment("附件暂不可用", symbol: "photo")
@@ -98,7 +98,12 @@ enum CanvasRichPreview {
         for (r, values) in rows.prefix(shown).enumerated() {
             for c in 0..<columns {
                 let cell = CGRect(x: box.minX + CGFloat(c) * width, y: box.minY + CGFloat(r) * 25, width: width, height: 25)
-                ink.withAlphaComponent(r == 0 ? 0.09 : 0.025).setFill(); UIRectFill(cell)
+                // Use an explicit RGB fill: UIRectFill can inherit the canvas grid's
+                // pattern color space and turn the translucent cells opaque black.
+                if let context = UIGraphicsGetCurrentContext() {
+                    context.setFillColor(ink.withAlphaComponent(r == 0 ? 0.09 : 0.025).cgColor)
+                    context.fill(cell)
+                }
                 ink.withAlphaComponent(0.13).setStroke(); UIBezierPath(rect: cell).stroke()
                 text(c < values.count ? values[c] : "", in: cell.insetBy(dx: 5, dy: 5), font: r == 0 ? .boldSystemFont(ofSize: 13) : .systemFont(ofSize: 13), ink: ink)
             }

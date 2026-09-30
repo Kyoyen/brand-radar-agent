@@ -15,6 +15,7 @@ import UniformTypeIdentifiers
                 .task {
                     #if DEBUG
                     CanvasUITestFixtures.install(in: store)
+                    CanvasUITestFixtures.startSyntheticSpeechIfRequested(in: store)
                     if ProcessInfo.processInfo.arguments.contains("--uitesting") && ProcessInfo.processInfo.arguments.contains("--canvas-perfcheck") {
                         var result: [String: Any] = [:]
                         do { result["passed"] = try CanvasGeometryChecks.run(); result["benchmark"] = CanvasGeometryChecks.benchmark; result["status"] = "passed" }
@@ -81,7 +82,9 @@ struct WorkspaceView: View {
             VStack(spacing: 0) {
                 header
                 HStack {
-                    Text("\(store.current.visibleCards.count) 张卡片").font(.system(size: 10)).accessibilityIdentifier("cardCountLabel")
+                    Text("\(store.current.visibleCards.count) 张卡片").font(.system(size: 10))
+                        .accessibilityIdentifier("cardCountLabel")
+                        .accessibilityValue(store.isRunning ? "正在处理" : "已完成")
                     Spacer()
                 }.foregroundStyle(.secondary).padding(.horizontal, 25).padding(.top, 10)
                 Spacer()
@@ -401,7 +404,7 @@ struct WorkspaceView: View {
             voiceBoardID = nil
             let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard scenePhase == .active, store.selectedID == boardID else {
-                if liveDrawing { store.interruptVoiceSession() } else { store.appendDictation(text, boardID: boardID) }
+                if liveDrawing { store.interruptVoiceSession(transcript: text) } else { store.appendDictation(text, boardID: boardID) }
                 return
             }
             if liveDrawing { store.finishVoiceSession(text) }
@@ -418,7 +421,7 @@ struct WorkspaceView: View {
         holdingVoice = false; cancellingVoice = false; voiceBoardID = nil
         dockSpeech.stop()
         if wasRecording {
-            if liveDrawing { store.interruptVoiceSession() }
+            if liveDrawing { store.interruptVoiceSession(transcript: dockSpeech.transcript) }
             else if let id = interruptedBoardID { store.appendDictation(dockSpeech.transcript, boardID: id) }
         }
     }

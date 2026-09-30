@@ -12,6 +12,10 @@ import UIKit
         if let segment = CanvasRichPreview.prepare(blocks: [bigTable]).segments.first, case let .table(rows, totalRows, _) = segment {
             try check(rows.count == 4 && rows[0].count == 3 && totalRows == 1000, "large table preview prepares only bounded visible cells")
         } else { try check(false, "table preview retains its structure") }
+        let unevenTable = CanvasBlock(kind: "table", rows: [["A", "B"], ["1", "2"], ["3", "4"], ["5", "6"], ["later", "has", "five", "columns", "here"]])
+        if let segment = CanvasRichPreview.prepare(blocks: [unevenTable]).segments.first, case let .table(_, _, columns) = segment {
+            try check(columns == 5, "table preview reports columns beyond the first four rows")
+        } else { try check(false, "uneven table preview exists") }
         let bigList = CanvasBlock(kind: "checklist", items: (0..<1000).map { CanvasChecklistItem(id: "list_\($0)", text: "准备", isChecked: false) })
         if let segment = CanvasRichPreview.prepare(blocks: [bigList]).segments.first, case let .checklist(items, total) = segment {
             try check(items.count == 4 && total == 1000, "large checklist preview prepares only bounded visible rows")
@@ -90,6 +94,14 @@ import UIKit
         let emptyDraw = RadarCanvasView.measureDraw(board: viewportBoard)
         benchmark.merge(emptyDraw.map { ("offscreen_" + $0.key, $0.value) }, uniquingKeysWith: { _, b in b })
         try check(emptyDraw["drawnNodes"] == 0 && emptyDraw["drawnEdges"] == 0 && emptyDraw["drawnGroups"] == 0, "actual renderer skips all offscreen object types")
+        for nodeCount in [30, 120] {
+            var zoomBoard = viewportBoard
+            zoomBoard.cards = Array(board.cards.prefix(nodeCount))
+            zoomBoard.groups = Array((board.groups ?? []).prefix(nodeCount / 10))
+            zoomBoard.edges = Array(board.edges.prefix(nodeCount - 1))
+            let zoom = RadarCanvasView.measureZoom(board: zoomBoard)
+            benchmark.merge(zoom.map { ("zoom_\(nodeCount)_" + $0.key, $0.value) }, uniquingKeysWith: { _, b in b })
+        }
         return passed
     }
 }

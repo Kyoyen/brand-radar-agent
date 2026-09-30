@@ -5,7 +5,8 @@ import Foundation
 struct TaskBlueprint {
     var sectionNames: [String] = []
     var newCardCount: Int?
-    var canvasWordMeansNodes = false
+    var requestedCanvasCount: Int?
+    var answeredIndependentCanvas = false
 
     static func from(prompt: String) -> TaskBlueprint {
         // The caller may append extracted material. It is context, never a command.
@@ -15,8 +16,8 @@ struct TaskBlueprint {
         let quantity = "(?:生成|创建|新增|新建|添加|增加|加上|加|补充|做出|制作|做|给我|给出|想要|来)\\s*" + numeral + "\\s*(?:张|个)\\s*(?:内容)?(卡片|卡|画布)"
         for match in matches(quantity, in: command) where !negated(match.range, in: command) {
             guard let count = number(capture(1, match, command)) else { continue }
-            result.newCardCount = count
-            result.canvasWordMeansNodes = capture(2, match, command) == "画布"
+            if capture(2, match, command) == "画布" { result.requestedCanvasCount = count }
+            else { result.newCardCount = count }
         }
         let focusedRevision = !matches("只(?:修改|改|调整|重写|润色).*?第[一二三四五六七八九十0-9]+幕", in: command).isEmpty
         if focusedRevision { return result }
@@ -34,6 +35,22 @@ struct TaskBlueprint {
         return result
     }
 
+    static func from(prompt: String, conversation: [RadarMessage]) -> TaskBlueprint {
+        var result = from(prompt: prompt)
+        let answer = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cardAnswers = ["卡片", "要卡片", "是卡片", "当前画布里的卡片", "就在当前画布里"]
+        let canvasAnswers = ["独立画布", "要独立画布", "是独立画布"]
+        guard cardAnswers.contains(answer) || canvasAnswers.contains(answer),
+              let replyIndex = conversation.indices.last(where: { conversation[$0].role == "assistant" }),
+              let prior = conversation[..<replyIndex].last(where: { $0.role == "user" }) else { return result }
+        let priorBlueprint = from(prompt: prior.content)
+        guard let count = priorBlueprint.requestedCanvasCount,
+              conversation[replyIndex].content == priorBlueprint.clarification else { return result }
+        if cardAnswers.contains(answer) { result.newCardCount = count; result.requestedCanvasCount = nil }
+        else { result.requestedCanvasCount = count; result.answeredIndependentCanvas = true }
+        return result
+    }
+
     var instructions: String {
         var lines: [String] = []
         if !sectionNames.isEmpty {
@@ -43,11 +60,13 @@ struct TaskBlueprint {
         }
         if let count = newCardCount {
             lines.append("本次明确数量：在当前同一画布内新增恰好\(count)个内容节点。只按新card.id计数，已有卡的改稿、分组和连线不计数。分批生成，复用已创建id，不为了补数复制同一内容。")
-            if canvasWordMeansNodes {
-                lines.append("用户口语中的\(count)张画布在此解释为当前文档里的\(count)张内容卡；summary明确说在当前画布内生成内容卡。此工具不能新建多个独立文档，禁止宣称已创建多个独立画布。")
-            }
         }
         return lines.isEmpty ? "" : "本次任务规范（只落实当前指令，不改变其他任务）：\n" + lines.joined(separator: "\n")
+    }
+    var clarification: String? {
+        guard let count = requestedCanvasCount else { return nil }
+        if answeredIndependentCanvas { return "要创建\(count)个独立画布，请从画布列表逐个新建；当前对话不能代你新建独立画布。" }
+        return "你想要\(count)个独立画布，还是当前画布里的\(count)张卡片？独立画布需要从画布列表新建。"
     }
 
     func checkCapacity(maximum: Int) throws {
@@ -80,13 +99,6 @@ struct TaskBlueprint {
         if let count = newCardCount { parts.append("已新增\(addedCards(initial: initial, candidate: candidate).count)/\(count)张卡，只补足剩余数量，禁止超数。") }
         if !sectionNames.isEmpty { parts.append("落实\(sectionNames.joined(separator: "、"))的明确标题；修改已存在的相关卡/组，不额外造说明卡。") }
         return parts.joined()
-    }
-    func presented(_ result: DirectAgentResult, initial: RadarBoard, candidate: RadarBoard) -> DirectAgentResult {
-        guard canvasWordMeansNodes else { return result }
-        return DirectAgentResult(cards: result.cards, edges: result.edges, removeIDs: result.removeIDs,
-            removeEdgeIDs: result.removeEdgeIDs,
-            summary: "已在当前画布内新增\(addedCards(initial: initial, candidate: candidate).count)张内容卡。",
-            groups: result.groups, removeGroupIDs: result.removeGroupIDs)
     }
     private func addedCards(initial: RadarBoard, candidate: RadarBoard) -> [RadarCard] {
         let ids = Set(initial.cards.map(\.id))

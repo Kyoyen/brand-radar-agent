@@ -20,7 +20,11 @@ import UIKit
         }
         try check(cache.measurements == measured && cache.rects == initial, "reading detail changes preserve 120-node positions and text measurement cache")
         let normal = CGRect(x: 0, y: 0, width: 320, height: 240)
-        try check(CanvasStyle.detail(rect: normal, scale: 0.2) == .shape && CanvasStyle.detail(rect: normal, scale: 0.65) == .title && CanvasStyle.detail(rect: normal, scale: 1) == .preview, "overview removes unreadable body while readable zoom retains mixed preview")
+        try check(CanvasStyle.detail(rect: normal, scale: 0.1) == .shape &&
+                  CanvasStyle.detail(rect: normal, scale: 0.2) == .title &&
+                  CanvasStyle.detail(rect: normal, scale: 0.65) == .title &&
+                  CanvasStyle.detail(rect: normal, scale: 1) == .preview,
+                  "readable overview keeps a title while zoomed cards reveal mixed content")
         let far = CanvasStyle.presentationRect(normal, scale: 0.2)
         let middle = CanvasStyle.presentationRect(normal, scale: 0.65)
         let near = CanvasStyle.presentationRect(normal, scale: 1)
@@ -37,7 +41,18 @@ import UIKit
                   connectedCache.displayCurves["ab"]!.1 == CGPoint(x: presentedA.maxX, y: presentedA.midY) &&
                   connectedCache.displayCurves["ab"]!.2 == CGPoint(x: presentedB.minX, y: presentedB.midY),
                   "overview hit frames and connection endpoints follow the visible cards")
-        try check(!CanvasStyle.showsEdgeLabel(scale: 0.5, selected: true, visibleEdges: 2) && !CanvasStyle.showsEdgeLabel(scale: 1, selected: false, visibleEdges: 80) && CanvasStyle.showsEdgeLabel(scale: 1, selected: true, visibleEdges: 80), "edge labels respect screen font and dense selected context")
+        try check(CanvasStyle.showsEdgeLabel(scale: 0.27, selected: true, visibleEdges: 80) &&
+                  CanvasStyle.showsEdgeLabel(scale: 0.54, selected: false, visibleEdges: 3) &&
+                  !CanvasStyle.showsEdgeLabel(scale: 0.54, selected: false, visibleEdges: 80),
+                  "selected and sparse relation labels stay readable while dense unselected labels recede")
+        connected.edges[0].label = "需要验证"
+        connectedCache.update(connected)
+        connectedCache.setPresentationScale(0.27)
+        let relation = connectedCache.displayCurves["ab"]!
+        let labelRect = CanvasStyle.edgeLabelRect("需要验证", start: relation.1, end: relation.2, scale: 0.27)
+        try check(connectedCache.displayCurveBounds["ab"]!.contains(labelRect) &&
+                  labelRect.contains(CGPoint(x: (relation.1.x + relation.2.x) / 2, y: (relation.1.y + relation.2.y) / 2)),
+                  "overview relation label shares visible culling and hit geometry")
         func luminance(_ color: UIColor) -> Double {
             var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
             color.getRed(&r, green: &g, blue: &b, alpha: &a)

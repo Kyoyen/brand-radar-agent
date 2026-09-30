@@ -37,7 +37,7 @@ extension DirectAgent {
         }
         return seen
     }
-    static func validateBlocks(_ rawValue: Any, board: RadarBoard, previous: RadarCard?) throws -> [CanvasBlock] {
+    static func validateBlocks(_ rawValue: Any, board: RadarBoard, previous: RadarCard?, removeBlockIDs: [String] = []) throws -> [CanvasBlock] {
         let bad = DirectAgentError.invalidResult("模型返回的混合内容无效，本批没有保存。")
         guard let rawBlocks = rawValue as? [[String: Any]], rawBlocks.count <= 30 else { throw bad }
         var attachments: [String: CanvasAttachment] = [:]
@@ -96,6 +96,7 @@ extension DirectAgent {
             if let index = result.firstIndex(where: { $0.id == block.id }) { result[index] = block }
             else { result.append(block) }
         }
+        result.removeAll { removeBlockIDs.contains($0.id) }
         guard result.count <= 30 else { throw bad }
         return result
     }

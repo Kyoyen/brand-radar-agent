@@ -150,7 +150,14 @@ final class CanvasGeometryCache {
         // Reuse the measured world curves at reading scale. At overview scale,
         // connectors attach to the visible card borders instead of empty space.
         if presentationScale >= 0.9 {
-            displayCurves = curves; displayCurveBounds = curveBounds
+            displayCurves = curves
+            displayCurveBounds = [:]
+            for edge in edges {
+                guard let curve = curves[edge.id] else { continue }
+                let label = edge.label.isEmpty ? CGRect(origin: curve.1, size: .zero) :
+                    CanvasStyle.edgeLabelRect(edge.label, start: curve.1, end: curve.2, scale: presentationScale)
+                displayCurveBounds[edge.id] = curve.0.bounds.insetBy(dx: -12, dy: -12).union(label)
+            }
             return
         }
         var nextCurves: [String: Curve] = [:]
@@ -160,8 +167,8 @@ final class CanvasGeometryCache {
                   let a = displayRects[aID], let b = displayRects[bID] else { continue }
             let curve = CanvasGeometry.curve(from: a, to: b)
             nextCurves[edge.id] = curve
-            let middle = CGPoint(x: (curve.1.x + curve.2.x) / 2, y: (curve.1.y + curve.2.y) / 2)
-            let label = edge.label.isEmpty ? CGRect(origin: middle, size: .zero) : CGRect(x: middle.x - 70, y: middle.y - 14, width: 140, height: 28)
+            let label = edge.label.isEmpty ? CGRect(origin: curve.1, size: .zero) :
+                CanvasStyle.edgeLabelRect(edge.label, start: curve.1, end: curve.2, scale: presentationScale)
             nextBounds[edge.id] = curve.0.bounds.insetBy(dx: -12, dy: -12).union(label)
         }
         displayCurves = nextCurves; displayCurveBounds = nextBounds

@@ -52,6 +52,26 @@ final class RadarCanvasView: UIView, UIGestureRecognizerDelegate {
         for _ in 0..<frames { _ = renderer.image { _ in canvas.draw(canvas.bounds) } }
         return ["averageDrawMilliseconds": (CFAbsoluteTimeGetCurrent() - start) * 1000 / Double(frames), "drawnNodes": Double(canvas.lastDrawCounts["nodes"] ?? 0), "drawnGroups": Double(canvas.lastDrawCounts["groups"] ?? 0), "drawnEdges": Double(canvas.lastDrawCounts["edges"] ?? 0)]
     }
+    static func measureZoom(board: RadarBoard, frames: Int = 30) -> [String: Double] {
+        let canvas = RadarCanvasView(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+        canvas.configure(board: board, selection: nil, fitRequest: 0); canvas.layoutIfNeeded()
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1
+        let renderer = UIGraphicsImageRenderer(size: canvas.bounds.size, format: format)
+        let scales = (0..<frames).map { index in CGFloat(0.27 + Double(index) / Double(max(frames - 1, 1)) * 0.83) }
+        for value in scales { canvas.scale = value; canvas.geometry.setPresentationScale(value); _ = renderer.image { _ in canvas.draw(canvas.bounds) } }
+        var geometryTime = 0.0, drawTime = 0.0
+        for value in scales {
+            let geometryStart = CFAbsoluteTimeGetCurrent()
+            canvas.scale = value; canvas.geometry.setPresentationScale(value)
+            geometryTime += CFAbsoluteTimeGetCurrent() - geometryStart
+            let drawStart = CFAbsoluteTimeGetCurrent()
+            _ = renderer.image { _ in canvas.draw(canvas.bounds) }
+            drawTime += CFAbsoluteTimeGetCurrent() - drawStart
+        }
+        return ["geometryMilliseconds": geometryTime * 1000 / Double(frames),
+                "drawMilliseconds": drawTime * 1000 / Double(frames),
+                "totalMilliseconds": (geometryTime + drawTime) * 1000 / Double(frames)]
+    }
     #endif
     private var selection: String?
     private var scale: CGFloat = 0.67
@@ -200,6 +220,11 @@ final class RadarCanvasView: UIView, UIGestureRecognizerDelegate {
     private func hitEdge(_ point: CGPoint) -> RadarEdge? {
         board?.edges.reversed().first { edge in
             guard let curve = edgeGeometry(edge) else { return false }
+            if !edge.label.isEmpty,
+               CanvasStyle.showsEdgeLabel(scale: scale,
+                   selected: selectedIDs.contains(edge.id) || selectedIDs.contains(edge.fromID) || selectedIDs.contains(edge.toID),
+                   visibleEdges: visibleEdgeCount),
+               CanvasStyle.edgeLabelRect(edge.label, start: curve.1, end: curve.2, scale: scale).contains(world(point)) { return true }
             return curve.0.cgPath.copy(strokingWithWidth: max(18, 24 / scale), lineCap: .round, lineJoin: .round, miterLimit: 0).contains(world(point))
         }
     }
@@ -406,12 +431,22 @@ final class RadarCanvasView: UIView, UIGestureRecognizerDelegate {
         guard let rect = groupRect(group) else { return }
         let color = RadarCard(title: "", body: "", color: group.color).uiColor
         let path = UIBezierPath(roundedRect: rect, cornerRadius: 28)
-        if scale >= 0.44 { color.withAlphaComponent(0.32).setFill(); path.fill() }
+        let progress = min(1, max(0, (scale - 0.34) / 0.14))
+        if progress > 0 { color.withAlphaComponent(0.32 * progress).setFill(); path.fill() }
         CanvasStyle.accent.withAlphaComponent(0.38).setStroke()
         path.lineWidth = selectedIDs.contains(group.id) ? 3 : 1.5; path.stroke()
-        guard 20 * scale >= 9 && rect.width * scale >= 85 else { return }
-        text(group.title, CGRect(x: rect.minX + 23, y: rect.minY + 15, width: rect.width - 70, height: 29), .systemFont(ofSize: 20, weight: .semibold), .darkGray)
-        text(group.collapsed == true ? "+" : "−", CGRect(x: rect.maxX - 35, y: rect.minY + 15, width: 22, height: 26), .systemFont(ofSize: 22), .gray)
+        guard rect.width * scale >= 50 else { return }
+        let far = CGRect(x: rect.minX + 3 / scale, y: rect.minY + 1 / scale,
+                         width: rect.width - 6 / scale, height: 12 / scale)
+        let near = CGRect(x: rect.minX + 23, y: rect.minY + 15, width: rect.width - 70, height: 29)
+        let titleRect = CGRect(x: far.minX + (near.minX - far.minX) * progress,
+                               y: far.minY + (near.minY - far.minY) * progress,
+                               width: far.width + (near.width - far.width) * progress,
+                               height: far.height + (near.height - far.height) * progress)
+        text(group.title, titleRect, .systemFont(ofSize: 9 / scale + (20 - 9 / scale) * progress, weight: .semibold), CanvasStyle.ink)
+        if progress > 0.5 {
+            text(group.collapsed == true ? "+" : "−", CGRect(x: rect.maxX - 35, y: rect.minY + 15, width: 22, height: 26), .systemFont(ofSize: 22), .gray.withAlphaComponent(progress))
+        }
     }
     private func drawEdge(_ edge: RadarEdge, context: CGContext) {
         guard let (path, start, end, c2) = edgeGeometry(edge) else { return }
@@ -434,12 +469,11 @@ final class RadarCanvasView: UIView, UIGestureRecognizerDelegate {
             let arrow = UIBezierPath(); arrow.move(to: CGPoint(x: end.x - 10 * cos(angle - 0.45), y: end.y - 10 * sin(angle - 0.45))); arrow.addLine(to: end); arrow.addLine(to: CGPoint(x: end.x - 10 * cos(angle + 0.45), y: end.y - 10 * sin(angle + 0.45))); arrow.lineWidth = 2; arrow.stroke()
         }
         if !edge.label.isEmpty && CanvasStyle.showsEdgeLabel(scale: scale, selected: highlighted, visibleEdges: visibleEdgeCount) {
-            let middle = CGPoint(x: (start.x + end.x) / 2, y: (start.y + end.y) / 2)
-            let font = UIFont.systemFont(ofSize: 11, weight: .medium)
-            let size = (edge.label as NSString).size(withAttributes: [.font: font])
-            let box = CGRect(x: middle.x - min(size.width, 120) / 2 - 9, y: middle.y - 11, width: min(size.width, 120) + 18, height: 23)
+            let font = CanvasStyle.edgeLabelFont(scale: scale)
+            let inset = 7 / scale
+            let box = CanvasStyle.edgeLabelRect(edge.label, start: start, end: end, scale: scale)
             backgroundColor?.setFill(); UIBezierPath(roundedRect: box, cornerRadius: 10).fill()
-            text(edge.label, box.insetBy(dx: 9, dy: 4), font, UIColor.darkGray)
+            text(edge.label, box.insetBy(dx: inset, dy: 2 / scale), font, UIColor.darkGray)
         }
     }
     private func drawCard(_ card: RadarCard, context: CGContext) {
@@ -455,20 +489,44 @@ final class RadarCanvasView: UIView, UIGestureRecognizerDelegate {
         let typeInk = CanvasStyle.typeInk(card.kind)
         let detail = CanvasStyle.detail(rect: rect, scale: scale)
         if detail == .shape {
-            typeInk.setFill()
-            UIBezierPath(roundedRect: CGRect(x: rect.minX + 10, y: rect.minY + 10, width: 5, height: max(6, rect.height - 20)), cornerRadius: 2.5).fill()
-            typeInk.withAlphaComponent(0.38).setFill()
-            UIBezierPath(roundedRect: CGRect(x: rect.minX + 25, y: rect.midY - 5, width: max(10, rect.width * 0.58), height: 10), cornerRadius: 5).fill()
             return
         }
         let secondary = CanvasStyle.secondary
         let inset: CGFloat = rect.width < 220 ? 16 : 22
         if detail == .title && scale < 0.48 {
-            text(card.title, CGRect(x: rect.minX + inset, y: rect.midY - 31, width: rect.width - inset * 2, height: 62), .systemFont(ofSize: 23, weight: .semibold), CanvasStyle.ink)
+            let progress = min(1, max(0, (scale - 0.30) / 0.18))
+            let supportingTextOpacity = min(1, max(0, (scale - 0.30) / 0.10))
+            let compactInset = 3 / scale
+            let fontSize = min(10, max(9, rect.width * scale / 5)) / scale
+            let compactFont = UIFont.systemFont(ofSize: fontSize, weight: .semibold)
+            let compactWidth = rect.width - compactInset * 2
+            let paragraph = NSMutableParagraphStyle(); paragraph.lineBreakMode = .byWordWrapping; paragraph.lineSpacing = 3
+            let measured = (card.title as NSString).boundingRect(with: CGSize(width: compactWidth, height: .greatestFiniteMagnitude),
+                options: .usesLineFragmentOrigin, attributes: [.font: compactFont, .paragraphStyle: paragraph], context: nil).height
+            let compactHeight = min(26 / scale, max(compactFont.lineHeight, ceil(measured)))
+            let compactY = rect.midY - compactHeight / 2
+            let fullX = rect.minX + inset, fullY = rect.minY + 40
+            let title = CGRect(x: rect.minX + compactInset + (fullX - rect.minX - compactInset) * progress,
+                               y: compactY + (fullY - compactY) * progress,
+                               width: compactWidth + (rect.width - inset * 2 - compactWidth) * progress,
+                               height: compactHeight + (56 - compactHeight) * progress)
+            if supportingTextOpacity > 0 {
+                context.setAlpha(appearance(card.id) * supportingTextOpacity)
+                text(card.label.uppercased(), CGRect(x: rect.minX + inset, y: rect.minY + 16,
+                    width: rect.width - inset * 2, height: 20), .systemFont(ofSize: max(17, 8 / scale), weight: .bold), typeInk)
+                let summaryHeight = rect.height - 111
+                if summaryHeight > 22 {
+                    text(geometry.preview(for: card.id), CGRect(x: rect.minX + inset, y: rect.minY + 103,
+                         width: rect.width - inset * 2, height: summaryHeight), .systemFont(ofSize: 18), secondary)
+                }
+                context.setAlpha(appearance(card.id))
+            }
+            text(card.title, title, .systemFont(ofSize: fontSize + (max(23, 11 / scale) - fontSize) * progress,
+                                               weight: .semibold), CanvasStyle.ink)
             return
         }
-        text(card.label.uppercased(), CGRect(x: rect.minX + inset, y: rect.minY + 16, width: rect.width - inset * 2, height: 20), .systemFont(ofSize: detail == .preview ? 12 : 17, weight: .bold), typeInk)
-        text(card.title, CGRect(x: rect.minX + inset, y: rect.minY + 40, width: rect.width - inset * 2, height: 56), .systemFont(ofSize: 23, weight: .semibold), CanvasStyle.ink)
+        text(card.label.uppercased(), CGRect(x: rect.minX + inset, y: rect.minY + 16, width: rect.width - inset * 2, height: 20), .systemFont(ofSize: detail == .preview ? 12 : max(17, 8 / scale), weight: .bold), typeInk)
+        text(card.title, CGRect(x: rect.minX + inset, y: rect.minY + 40, width: rect.width - inset * 2, height: 56), .systemFont(ofSize: max(23, 11 / scale), weight: .semibold), CanvasStyle.ink)
         if detail == .title {
             let summaryHeight = rect.height - 111
             if summaryHeight > 22 {
@@ -509,7 +567,8 @@ final class RadarCanvasView: UIView, UIGestureRecognizerDelegate {
     }
     private func drawHandles(_ id: String) {
         guard let r = objectRect(id) else { return }
-        let radius = max(7, 10 / scale)
+        guard r.width * scale >= 38, r.height * scale >= 25 else { return }
+        let radius = min(8, max(4, 7 * scale)) / scale
         UIColor.white.setFill(); CanvasStyle.accent.setStroke()
         let port = UIBezierPath(ovalIn: CGRect(x: r.maxX-radius, y: r.midY-radius, width: radius*2, height: radius*2)); port.lineWidth = 2 / scale; port.fill(); port.stroke()
         let handle = UIBezierPath(roundedRect: CGRect(x: r.maxX-radius, y: r.maxY-radius, width: radius*2, height: radius*2), cornerRadius: 3 / scale); handle.lineWidth = 2 / scale; handle.fill(); handle.stroke()

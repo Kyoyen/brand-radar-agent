@@ -1,6 +1,21 @@
 import XCTest
 
 final class LiveDrawingUITests: XCTestCase {
+    func testEmptySpeechAttemptDoesNotLeaveReview() {
+        let app = XCUIApplication(); app.launchArguments = ["--uitesting"]; app.launch()
+        addUIInterruptionMonitor(withDescription: "Speech permission") { alert in
+            if alert.buttons["不允许"].exists { alert.buttons["不允许"].tap(); return true }
+            if alert.buttons["Don’t Allow"].exists { alert.buttons["Don’t Allow"].tap(); return true }
+            if alert.buttons["Don't Allow"].exists { alert.buttons["Don't Allow"].tap(); return true }
+            return false
+        }
+        XCTAssertTrue(app.buttons["liveDrawingModeButton"].waitForExistence(timeout: 10))
+        app.buttons["liveDrawingModeButton"].tap()
+        app.buttons["chatButton"].press(forDuration: 1)
+        app.tap()
+        XCTAssertFalse(app.buttons["keepLiveDrawingButton"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["briefModeButton"].isEnabled)
+    }
     func testBriefAndBetaAreSeparateEntrypoints() {
         let app = XCUIApplication(); app.launchArguments = ["--uitesting"]; app.launch()
         XCTAssertTrue(app.buttons["briefModeButton"].waitForExistence(timeout: 10))

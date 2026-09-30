@@ -31,11 +31,21 @@ enum CanvasStyle {
     }
     // Detail depends on the frame actually drawn, not the larger saved frame.
     static func detail(rect: CGRect, scale: CGFloat) -> Detail {
-        guard 23 * scale >= 10, rect.width * scale >= 90, rect.height * scale >= 44 else { return .shape }
+        guard rect.width * scale >= 38, rect.height * scale >= 25 else { return .shape }
         guard scale >= 0.88, rect.width * scale >= 170, rect.height >= 205 else { return .title }
         return .preview
     }
     static func showsEdgeLabel(scale: CGFloat, selected: Bool, visibleEdges: Int) -> Bool {
-        11 * scale >= 10 && (selected || visibleEdges <= 18)
+        selected || (scale >= 0.46 && visibleEdges <= 6) || (scale >= 0.91 && visibleEdges <= 18)
+    }
+    static func edgeLabelFont(scale: CGFloat) -> UIFont {
+        .systemFont(ofSize: max(11, 10 / scale), weight: .medium)
+    }
+    static func edgeLabelRect(_ label: String, start: CGPoint, end: CGPoint, scale: CGFloat) -> CGRect {
+        let middle = CGPoint(x: (start.x + end.x) / 2, y: (start.y + end.y) / 2)
+        let width = min((label as NSString).size(withAttributes: [.font: edgeLabelFont(scale: scale)]).width, 70 / scale)
+        let inset = 7 / scale, height = 19 / scale
+        return CGRect(x: middle.x - width / 2 - inset, y: middle.y - height / 2,
+                      width: width + inset * 2, height: height)
     }
 }

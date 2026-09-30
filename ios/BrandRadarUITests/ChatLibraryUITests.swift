@@ -13,16 +13,28 @@ final class ChatLibraryUITests: XCTestCase {
         let card = app.buttons["card_demo_idea"]; card.tap(); app.buttons["chatButton"].tap()
         XCTAssertTrue(app.staticTexts["chatTargetLabel"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["chatTargetLabel"].label.contains(card.label))
-        for _ in 0..<3 {
-            let composer = input(app); composer.tap(); composer.typeText("Rewrite this idea")
+        let prompts = [
+            "演示：保留这个方向，把表达改得更轻快、更适合手机阅读。",
+            "演示：把这个想法做成一条可以分享的内容稿。",
+            "演示：保留这个方向，把表达改得更轻快、更适合手机阅读。"
+        ]
+        for (turn, prompt) in prompts.enumerated() {
+            let composer = input(app); composer.tap(); composer.typeText(prompt)
             app.buttons["sendButton"].tap()
             XCTAssertTrue(app.buttons["closeChatButton"].exists, "Sending keeps the conversation open")
             let done = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.buttons["stopChatButton"])
             XCTAssertEqual(XCTWaiter.wait(for: [done], timeout: 15), .completed)
             XCTAssertTrue(input(app).exists)
-            let latestReply = app.staticTexts.matching(NSPredicate(format: "label == %@", "这张已改好，旧稿也留着。")).allElementsBoundByIndex.last!
+            let replies = app.scrollViews["chatHistory"].staticTexts.matching(NSPredicate(format: "label == %@", "修改 1 张"))
+            let replyArrived = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in replies.count >= turn + 1 }, object: nil)
+            XCTAssertEqual(XCTWaiter.wait(for: [replyArrived], timeout: 10), .completed, "Each supported demo action must change the selected card")
+            guard let latestReply = replies.allElementsBoundByIndex.last else {
+                XCTFail("The expected document-change reply is missing after send")
+                return
+            }
             let visible = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: latestReply)
             XCTAssertEqual(XCTWaiter.wait(for: [visible], timeout: 5), .completed, "Latest reply is readable after layout settles: \(app.scrollViews["chatHistory"].value ?? "nil")")
+            XCTAssertTrue(app.staticTexts["chatTargetLabel"].exists, "The selected target must survive each edit")
         }
         capture("B03 three local edits in one panel", app)
     }
